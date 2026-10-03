@@ -1,0 +1,6 @@
+# Git hooks are executed by sh. A CRLF line ending makes the shebang read as
+# "/bin/sh\r", and the hook dies with "bad interpreter" on Linux and macOS.
+# Checking them out LF-only regardless of core.autocrlf is what keeps hooks
+# authored on Windows working everywhere else.
+.githooks/* text eol=lf
+*.sh text eol=lf

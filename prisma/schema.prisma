@@ -1,0 +1,118 @@
+generator client {
+  provider        = "prisma-client-js"
+  // Lets findUnique/findMany fetch relations in one LATERAL JOIN instead of
+  // one round trip per relation, which the pooler makes expensive.
+  previewFeatures = ["relationJoins"]
+}
+
+// Both URLs carry `?schema=auth`. Prisma then schema-qualifies every query it
+// generates ("auth"."account"), so nothing depends on search_path — which the
+// Neon pooler (PgBouncer, transaction mode) would not keep anyway — and it keeps
+// its migration table at auth._prisma_migrations, apart from billing's
+// public._prisma_migrations. That separation is this repo's migration history.
+//
+// Raw SQL does not get this for free: anything passed to $executeRaw or
+// $queryRaw must write `auth.` itself.
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// A way to sign in. Moved here from nest-foo-billing with `ALTER TABLE ... SET
+// SCHEMA auth`; this model, and 0_init, describe the table exactly as billing
+// left it.
+//
+// There may be several. Nothing distinguishes them: there are no roles, and
+// every account may enter every portal.
+model Account {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique @db.VarChar(255)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+
+  /// Set only on the one account the PIN door opens; null on every other.
+  pin          AccountPin?
+
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // "account" rather than "user", which is reserved in SQL and would need
+  // quoting everywhere. Not "profile" or "person" either: this is a way to sign
+  // in, not a description of somebody.
+  @@map("account")
+}
+
+/// The PIN door (POST /auth/key). Exactly one row, and it always exists — the
+/// migration seeds it and validateKey upserts it, so the counters below are
+/// never absent.
+///
+/// A table of its own rather than columns on account because a six-digit PIN
+/// carries no identity: it cannot pick between accounts, so the door is a thing
+/// in its own right that *points at* one of them. That is also what lets the
+/// lockout counters exist when no PIN is configured — without them, "is a PIN
+/// set?" is answerable by watching whether the countdown advances.
+///
+/// Two CHECK constraints live on this table and are invisible to Prisma, which
+/// has no syntax for them: `id = 1`, and the paired-null rule below. `prisma db
+/// pull` would silently drop both, so they exist only in migration SQL — here in
+/// 0_init, and in billing's history before the table moved.
+model AccountPin {
+  id             Int       @id @default(1)
+
+  /// Which account the PIN signs in as. Null together with keyHash and never
+  /// apart — a CHECK enforces the pairing, so a live credential can never
+  /// outlive the account it belonged to. Restrict, not SetNull: the database
+  /// refuses to delete the door-holder until the key is explicitly cleared.
+  ///
+  /// @unique is load-bearing for relation cardinality rather than for
+  /// uniqueness; without it the back-relation becomes a list.
+  accountId      String?   @unique @map("account_id") @db.Uuid
+  account        Account?  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  /// The six-digit PIN, Argon2id-hashed exactly like passwordHash.
+  keyHash        String?   @map("key_hash") @db.VarChar(255)
+
+  /// Failures since the last lockout or the last success. Reset to zero when a
+  /// lockout is served, so the lock expiring hands back a full budget.
+  failedAttempts Int       @default(0) @map("failed_attempts")
+  lockedUntil    DateTime? @map("locked_until")
+  /// Lockouts served, not attempts — this is the exponent the backoff doubles.
+  lockoutCount   Int       @default(0) @map("lockout_count")
+
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@map("account_pin")
+}
+
+/// The login log. Append-only, written only by this service, read by nobody
+/// else's code.
+///
+/// Never holds a password, a PIN, a token, or the email typed on a failed
+/// attempt (people type passwords into that field).
+///
+/// Three things here exist only in migration SQL, because Prisma cannot say
+/// them: the CHECKs on kind, method and portal, and the partial unique index
+/// `auth_event_portal_entry_once` on (sid, portal) WHERE kind = 'portal_entry',
+/// which is what makes "one portal_entry per session per portal" a database
+/// rule rather than a hope. See src/events/auth-event.ts for the values.
+model AuthEvent {
+  id        BigInt   @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  /// Null when a failed login named no existing account. Deliberately not a
+  /// foreign key: a log row should outlive the account it describes and never
+  /// block account admin.
+  accountId String?  @map("account_id") @db.Uuid
+  kind      String   @db.VarChar(32)
+  method    String?  @db.VarChar(16)
+  portal    String   @db.VarChar(16)
+  sid       String?  @db.Uuid
+  ip        String?  @db.Inet
+  userAgent String?  @map("user_agent") @db.VarChar(512)
+
+  @@index([accountId, createdAt(sort: Desc)])
+  /// The retention sweep's range scan. BRIN because rows arrive in created_at
+  /// order, so a few pages of summary cover the whole table.
+  @@index([createdAt], type: Brin)
+  @@map("auth_event")
+}

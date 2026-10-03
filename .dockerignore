@@ -1,0 +1,30 @@
+# Reinstalled inside the image against the lockfile; copying the host's tree
+# would drag in macOS-native binaries the Linux runtime cannot load.
+node_modules
+dist
+
+# Secrets never enter the image. Railway supplies these as environment
+# variables at runtime.
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+
+# Tests and local tooling — not needed to build or run the server.
+test
+**/*.spec.ts
+vitest.config.mts
+docs
+.vscode
+.idea
+
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+Dockerfile
+.dockerignore
+README.md

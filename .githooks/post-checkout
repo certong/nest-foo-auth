@@ -1,0 +1,5 @@
+#!/bin/sh
+# $3 is 1 for a branch checkout and 0 for a file checkout; only the former can
+# move the schema.
+[ "$3" = "1" ] || exit 0
+exec "$(dirname "$0")/sync-prisma-client.sh" "$1" "$2"

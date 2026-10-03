@@ -1,0 +1,4 @@
+#!/bin/sh
+# Fires after `git rebase` and `git commit --amend`, neither of which triggers
+# post-checkout or post-merge.
+exec "$(dirname "$0")/sync-prisma-client.sh" ORIG_HEAD HEAD
