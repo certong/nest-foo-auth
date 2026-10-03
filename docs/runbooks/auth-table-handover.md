@@ -8,7 +8,13 @@ section 11.
 | Environment | How the move runs | Who runs it |
 |---|---|---|
 | local, dev | `scripts/handover/rehearse.sh` (this runbook) | you |
-| UAT, production | a hand-written nest-foo-billing migration containing `10-move.sql`, then steps 3–5 here | **not without Chi's go-ahead** |
+| UAT, production | nest-foo-billing's migration `20261003150000_move_account_tables_to_auth` (`10-move.sql` plus a guard), shipped with billing's release, then steps 3–5 here | **not without Chi's go-ahead** |
+
+Where `rehearse.sh` already moved the tables (local, and Neon dev if it was
+rehearsed there), billing's migration must be marked applied, not run:
+`npx prisma migrate resolve --applied 20261003150000_move_account_tables_to_auth`
+in nest-foo-billing. Its guard refuses to run on an already-moved database. If
+`deploy` was run anyway, mark the failed row `--rolled-back` first.
 
 ## Files
 
@@ -175,6 +181,16 @@ Smoke-test note: every POST, including `refresh` and `logout` with no body, must
 send `Content-Type: application/json` or it gets 415 (the CSRF control). The
 portals' fetch calls must set it.
 
+### Billing's migration, local throwaway copies (2026-10-03)
+
+The cutover in production order, on a restored copy of the pre-handover dump:
+billing `migrate deploy` (the move), then auth's `resolve --applied 0_init` and
+`deploy`, then verify. The digests match, verify shows 11 `t`, the rule probes
+are refused, and neither service shows drift. §11.2.6 passes: billing's shadow
+replay against its `schema.prisma` gives an empty migration. Also proven: the
+guard's message reaches the operator through `prisma migrate deploy`; a failure
+half-way leaves both tables in `public`; and with a lock held on `account`, the
+migration gives up at the 5 s `lock_timeout`.
+
 **Still open:** §11.2.5 through Neon's **pooler** (Step 3 of the cutover
-rehearsal, on a new Neon branch from dev) and §11.2.6, billing's own drift check
-after the move, which belongs to billing's migration.
+rehearsal, on a new Neon branch from dev).
