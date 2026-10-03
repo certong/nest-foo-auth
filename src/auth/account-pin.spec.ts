@@ -13,7 +13,7 @@ interface Door {
   lockoutCount: number;
 }
 
-function fakePrisma(users: Array<{ id: string; email: string }>, door: Partial<Door> = {}) {
+function fakePrisma(users: Array<{ id: string; email: string; accountType: string }>, door: Partial<Door> = {}) {
   const row: Door = {
     accountId: null,
     keyHash: null,
@@ -43,7 +43,8 @@ function fakePrisma(users: Array<{ id: string; email: string }>, door: Partial<D
   };
 }
 
-const ADMIN = { id: USER_ID, email: 'admin@example.com' };
+const ADMIN = { id: USER_ID, email: 'admin@example.com', accountType: 'staff' };
+const CLIENT = { id: 'u9', email: 'owner@client.example', accountType: 'client' };
 
 describe('setAccountPin', () => {
   it('stores an Argon2 hash, never the digits', async () => {
@@ -74,7 +75,7 @@ describe('setAccountPin', () => {
   it('moves the door from one account to another', async () => {
     // With several accounts this is how the PIN is handed over.
     const { prisma, row } = fakePrisma(
-      [ADMIN, { id: OTHER_ID, email: 'second@example.com' }],
+      [ADMIN, { id: OTHER_ID, email: 'second@example.com', accountType: 'staff' }],
       { accountId: USER_ID, keyHash: 'old' },
     );
     await setAccountPin(prisma as never, 'second@example.com', '999888');
@@ -116,6 +117,16 @@ describe('setAccountPin', () => {
       /no account/i,
     );
     expect(row.accountId).toBeNull();
+  });
+});
+
+describe('setAccountPin and account types', () => {
+  it('refuses to give the PIN to a client account', async () => {
+    // Whoever holds the PIN can open billing. A client never should.
+    const { prisma, row } = fakePrisma([ADMIN, CLIENT]);
+    await expect(setAccountPin(prisma as never, CLIENT.email, KEY)).rejects.toThrow(/only be held by staff/);
+    expect(row.accountId).toBeNull();
+    expect(row.keyHash).toBeNull();
   });
 });
 

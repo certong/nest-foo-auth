@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { Portal } from '../portal/portal';
+import { AccountType, isAccountType } from './account-type';
 import { ALGORITHM, TokenKeys } from './token-keys';
 
 /**
@@ -34,10 +35,15 @@ export interface SessionClaims {
   id: string;
   email: string;
   sid: string;
+  /** staff or client. Decides which portals the session may enter. */
+  accountType: AccountType;
+  /** The billing client a client login belongs to; null for staff. */
+  clientId: number | null;
 }
 
 /**
- * Only id, email and sid are carried. A JWT is signed, not encrypted — anyone
+ * id, email, sid, account_type, and client_id for a client login — nothing
+ * else. A JWT is signed, not encrypted — anyone
  * holding it can read every claim — so nothing goes in here that would matter
  * if read.
  *
@@ -54,7 +60,13 @@ function sign(
   audience: string,
   ttlSeconds: number,
 ): Promise<string> {
-  return new SignJWT({ email: claims.email, sid: claims.sid, typ })
+  // Spelled out in full, unlike typ: account_type and client_id are what a
+  // product backend filters data by, and should read plainly in a decoded token.
+  const accountClaims =
+    claims.accountType === 'client'
+      ? { account_type: claims.accountType, client_id: claims.clientId }
+      : { account_type: claims.accountType };
+  return new SignJWT({ email: claims.email, sid: claims.sid, typ, ...accountClaims })
     .setProtectedHeader({ alg: ALGORITHM, kid: keys.kid })
     .setSubject(claims.id)
     .setIssuer(keys.issuer)
@@ -115,11 +127,22 @@ export async function verifyToken(
     return null;
   }
 
-  const { sub, email, sid } = payload;
-  if (!nonEmpty(sub) || !nonEmpty(email) || !nonEmpty(sid)) {
+  const { sub, email, sid, account_type: accountType, client_id: clientId } = payload;
+  if (!nonEmpty(sub) || !nonEmpty(email) || !nonEmpty(sid) || !isAccountType(accountType)) {
     return null;
   }
-  return { id: sub, email, sid };
+  // A client token must say which client; a staff token must not claim one.
+  // Either mismatch is a token we did not mint.
+  if (accountType === 'client') {
+    if (typeof clientId !== 'number' || !Number.isInteger(clientId) || clientId <= 0) {
+      return null;
+    }
+    return { id: sub, email, sid, accountType, clientId };
+  }
+  if (clientId !== undefined) {
+    return null;
+  }
+  return { id: sub, email, sid, accountType, clientId: null };
 }
 
 function nonEmpty(value: unknown): value is string {

@@ -42,6 +42,11 @@ export async function setAccountPin(
     throw new Error('key must be exactly six digits');
   }
   const user = await userByEmail(prisma, email);
+  // The PIN is a staff door: whoever holds it can open billing. A client
+  // holding it would be refused there anyway, but should never be given it.
+  if (user.accountType !== 'staff') {
+    throw new Error(`${user.email} is a ${user.accountType} account; the PIN can only be held by staff`);
+  }
   const keyHash = await hashPassword(key);
 
   // accountId and keyHash are written together because account_pin_pairing

@@ -3,7 +3,12 @@
 The one place sign-in happens for the foo platform. Issues ES256 tokens for the
 **billing** and **studio** portals, owns the `auth` schema of
 `foo_platform_db`, and publishes the public key the product backends verify
-with. Sign in at one portal and you are signed in at both.
+with. Sign in at one portal and you are signed in at every portal your account
+may enter.
+
+Two account types: **staff** may enter billing and studio. A **client** belongs
+to one billing client and may enter studio only, where it sees only that
+client's data ([spec](docs/superpowers/specs/2026-10-03-account-types-design.md)).
 
 Design: [`docs/superpowers/specs/2026-10-03-nest-foo-auth-design.md`](docs/superpowers/specs/2026-10-03-nest-foo-auth-design.md).
 Moving the tables over from billing: [`docs/runbooks/auth-table-handover.md`](docs/runbooks/auth-table-handover.md).
@@ -16,16 +21,17 @@ anything else is a 403. Except where noted, mutating requests must send
 
 | | | Returns |
 |---|---|---|
-| `POST /api/auth/login` | `{ email, password }`, throttled 10/15 min/IP | `{ accessToken, user: { id, email } }` + refresh cookie |
+| `POST /api/auth/login` | `{ email, password }`, throttled 10/15 min/IP | `{ accessToken, user: { id, email, accountType, clientId? } }` + refresh cookie; 403 for a client at billing |
 | `POST /api/auth/key` | `{ key }` (six digits), throttled + per-door lockout | same as login |
-| `POST /api/auth/refresh` | refresh cookie | `{ accessToken }` for the requesting portal |
+| `POST /api/auth/refresh` | refresh cookie | `{ accessToken }` for the requesting portal; 403 for a client at billing, 401 once disabled |
 | `POST /api/auth/logout` | — | 204, cookie cleared (signs out of every portal) |
-| `GET /api/me` | `Authorization: Bearer <access token for this portal>` | `{ id, email }` |
+| `GET /api/me` | `Authorization: Bearer <access token for this portal>` | `{ id, email, accountType, clientId? }` |
 | `GET /.well-known/jwks.json` | no Origin needed | the public signing keys |
 | `GET /api/health` | no Origin needed | `{ status: 'ok' }` |
 
 Access tokens last 15 minutes, the refresh cookie 12 hours. Claims: `iss`,
-`aud` (`billing` | `studio`), `sub`, `email`, `sid`, `typ`. The contract the
+`aud` (`billing` | `studio`), `sub`, `email`, `sid`, `typ`, `account_type`
+(`staff` | `client`), and `client_id` for client logins. The contract the
 product backends verify against is spec section 8, and
 `test/contract.e2e-spec.ts` runs it.
 
@@ -56,18 +62,17 @@ the CHECKs, retention), and drops it.
 
 | | |
 |---|---|
-| `npm run seed:admin` | create an account, or reset its password (there is no reset flow) |
-| `npm run user:add` | add an account; refuses an existing email |
-| `npm run user:list` | list accounts and which one holds the PIN |
-| `npm run key:set` | set, move or clear the six-digit PIN; also the unlock |
-
-Every account may enter every portal. There are no roles.
+| `npm run seed:admin` | create a staff account, or reset a staff password (there is no reset flow) |
+| `npm run user:add` | add an account; `USER_ACCOUNT_TYPE=client USER_CLIENT_ID=<billing client id>` for a client |
+| `npm run user:list` | list accounts with type, client, disabled, and the PIN holder |
+| `npm run user:disable` / `user:enable` | cut a login off (its session ends within 15 minutes) or let it back |
+| `npm run key:set` | set, move or clear the six-digit PIN (staff only); also the unlock |
 
 ## The login log
 
 `auth.auth_event`, append-only. One row per `login_success`, `login_failed`,
-`key_failed`, `key_locked`, `logout`, and one `portal_entry` per session per
-portal. Never a password, PIN, token or typed email. Kept 365 days
+`key_failed`, `key_locked`, `portal_denied`, `logout`, and one `portal_entry`
+per session per portal. Never a password, PIN, token or typed email. Kept 365 days
 (`AUTH_EVENT_RETENTION_DAYS`); pruned a minute after boot and daily, or with
 `npm run events:prune`. Set `TRUST_PROXY=1` behind a proxy or every IP is the
 proxy's. Example queries: spec section 7.4.

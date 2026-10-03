@@ -28,9 +28,9 @@ interface Door {
   lockoutCount: number;
 }
 
-async function build(options: { door?: Partial<Door>; recorder?: 'ok' | 'throws' } = {}) {
+async function build(options: { door?: Partial<Door>; recorder?: 'ok' | 'throws'; holder?: Record<string, unknown> } = {}) {
   const passwordHash = await hashPassword(PASSWORD);
-  const user = { id: USER_ID, email: EMAIL, passwordHash };
+  const user = { id: USER_ID, email: EMAIL, passwordHash, accountType: 'staff', clientId: null, disabledAt: null, ...options.holder };
   const door: Door = {
     accountId: USER_ID,
     keyHash: await hashPassword(KEY),
@@ -50,7 +50,10 @@ async function build(options: { door?: Partial<Door>; recorder?: 'ok' | 'throws'
   });
 
   const prisma = {
-    account: { findUnique: ({ where }: { where: { email: string } }) => Promise.resolve(where.email === EMAIL ? user : null) },
+    account: {
+      findUnique: ({ where }: { where: { email?: string; id?: string } }) =>
+        Promise.resolve(where.email === EMAIL || where.id === USER_ID ? user : null),
+    },
     accountPin: {
       upsert: () => Promise.resolve(withUser()),
       findUnique: () => Promise.resolve(withUser()),
@@ -224,6 +227,27 @@ describe('PIN sign-in', () => {
     await Promise.all([failureOf(service.validateKey('000000', META)), failureOf(service.validateKey('000001', META))]);
 
     expect(allEvents(recorded).map((e) => e.kind).sort()).toEqual(['key_failed', 'key_locked']);
+  });
+});
+
+describe('PIN sign-in and account types', () => {
+  it('treats a disabled door holder as no key: counted, never let in', async () => {
+    const { service, recorded, door } = await build({ holder: { disabledAt: new Date() } });
+    const refused = await failureOf(service.validateKey(KEY, META));
+
+    expect(refused.status).toBe(401);
+    expect(door.failedAttempts).toBe(1);
+    expect(allEvents(recorded).map((e) => e.kind)).toEqual(['key_failed']);
+  });
+
+  it('refuses a client holder at billing with portal_denied, if the database was edited by hand', async () => {
+    const { service, recorded } = await build({ holder: { accountType: 'client', clientId: 42 } });
+    const refused = await failureOf(service.validateKey(KEY, META));
+
+    expect(refused.status).toBe(403);
+    expect(allEvents(recorded)).toEqual([
+      expect.objectContaining({ kind: 'portal_denied', method: 'pin', accountId: USER_ID, portal: 'billing' }),
+    ]);
   });
 });
 

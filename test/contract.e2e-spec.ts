@@ -6,7 +6,7 @@ import request from 'supertest';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { REFRESH_COOKIE_NAME } from '../src/auth/session-cookie';
 import { createTestApp } from './create-test-app';
-import { EMAIL, PASSWORD, USER_ID, fakePrisma } from './fake-prisma';
+import { CLIENT_EMAIL, CLIENT_ID, EMAIL, PASSWORD, USER_ID, fakePrisma } from './fake-prisma';
 import { BILLING_ORIGIN, STUDIO_ORIGIN, TEST_ISSUER, testKeys } from './test-keys';
 
 /**
@@ -35,7 +35,9 @@ afterAll(async () => {
 /** The reference verifier from the spec, verbatim apart from configuration. */
 function productBackendVerifier(portal: 'billing' | 'studio') {
   const jwks = createRemoteJWKSet(jwksUrl);
-  return async (token: string): Promise<{ sub: string; email: string; sid: string }> => {
+  return async (
+    token: string,
+  ): Promise<{ sub: string; email: string; sid: string; account_type: string; client_id?: number }> => {
     try {
       const { payload } = await jwtVerify(token, jwks, {
         algorithms: ['ES256'],
@@ -47,7 +49,15 @@ function productBackendVerifier(portal: 'billing' | 'studio') {
       for (const value of [sub, email, sid]) {
         if (typeof value !== 'string' || value.length === 0) throw new Error('claims');
       }
-      return { sub: sub as string, email: email as string, sid: sid as string };
+      const accountType = payload.account_type;
+      if (accountType !== 'staff' && accountType !== 'client') throw new Error('account_type');
+      if (accountType === 'client') {
+        const clientId = payload.client_id;
+        if (typeof clientId !== 'number' || !Number.isInteger(clientId) || clientId <= 0) throw new Error('client_id');
+        return { sub: sub as string, email: email as string, sid: sid as string, account_type: accountType, client_id: clientId };
+      }
+      if (portal === 'billing' && accountType !== 'staff') throw new Error('staff only');
+      return { sub: sub as string, email: email as string, sid: sid as string, account_type: accountType };
     } catch {
       throw new UnauthorizedException();
     }
@@ -59,11 +69,11 @@ function cookieFrom(res: request.Response): string {
   return raw.find((c) => c.startsWith(`${REFRESH_COOKIE_NAME}=`))!.split(';')[0];
 }
 
-async function signIn(origin: string) {
+async function signIn(origin: string, email = EMAIL) {
   const res = await request(app.getHttpServer())
     .post('/api/auth/login')
     .set('Origin', origin)
-    .send({ email: EMAIL, password: PASSWORD })
+    .send({ email, password: PASSWORD })
     .expect(200);
   return { accessToken: res.body.accessToken as string, cookie: cookieFrom(res) };
 }
@@ -85,12 +95,25 @@ describe('what a product backend accepts', () => {
     const { accessToken } = await signIn(BILLING_ORIGIN);
     const claims = await productBackendVerifier('billing')(accessToken);
 
-    expect(claims).toEqual({ sub: USER_ID, email: EMAIL, sid: expect.stringMatching(/^[0-9a-f-]{36}$/) });
+    expect(claims).toEqual({
+      sub: USER_ID,
+      email: EMAIL,
+      sid: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      account_type: 'staff',
+    });
   });
 
   it('studio accepts a studio token', async () => {
     const { accessToken } = await signIn(STUDIO_ORIGIN);
     await expect(productBackendVerifier('studio')(accessToken)).resolves.toMatchObject({ sub: USER_ID });
+  });
+
+  it('studio reads a client token’s account_type and client_id, which it filters data by', async () => {
+    const { accessToken } = await signIn(STUDIO_ORIGIN, CLIENT_EMAIL);
+    await expect(productBackendVerifier('studio')(accessToken)).resolves.toMatchObject({
+      account_type: 'client',
+      client_id: CLIENT_ID,
+    });
   });
 });
 
@@ -115,7 +138,7 @@ describe('audience separation', () => {
 
   it('neither accepts a token signed by a key the JWKS does not hold', async () => {
     const { signAccessToken } = await import('../src/auth/session-token');
-    const foreign = await signAccessToken({ id: USER_ID, email: EMAIL, sid: 'x' }, 'billing', await testKeys('rogue'));
+    const foreign = await signAccessToken({ id: USER_ID, email: EMAIL, sid: 'x', accountType: 'staff', clientId: null }, 'billing', await testKeys('rogue'));
 
     await expect(productBackendVerifier('billing')(foreign)).rejects.toThrow(UnauthorizedException);
   });

@@ -71,7 +71,8 @@ do this instead.
 npx prisma migrate deploy
 ```
 
-Applies `20261003120000_add_auth_event` and nothing else.
+Applies `20261003120000_add_auth_event` and `20261003140000_account_types`
+(every existing account becomes `staff`; no backfill needed).
 
 ### 5. Verify — read-only
 

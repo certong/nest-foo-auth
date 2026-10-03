@@ -20,10 +20,10 @@ beforeAll(async () => {
       .overrideProvider(PrismaService)
       .useValue({
         account: {
-          findUnique: ({ where }: { where: { email: string } }) =>
+          findUnique: ({ where }: { where: { email?: string; id?: string } }) =>
             Promise.resolve(
-              where.email === 'admin@example.com'
-                ? { id: USER_ID, email: 'admin@example.com', passwordHash }
+              where.email === 'admin@example.com' || where.id === USER_ID
+                ? { id: USER_ID, email: 'admin@example.com', passwordHash, accountType: 'staff', clientId: null, disabledAt: null }
                 : null,
             ),
         },
@@ -67,7 +67,7 @@ describe('POST /api/auth/login', () => {
       .send({ email: 'admin@example.com', password: PASSWORD })
       .expect(200);
 
-    expect(res.body.user).toEqual({ id: USER_ID, email: 'admin@example.com' });
+    expect(res.body.user).toEqual({ id: USER_ID, email: 'admin@example.com', accountType: 'staff' });
     expect(typeof res.body.accessToken).toBe('string');
   });
 
@@ -142,7 +142,7 @@ describe('GET /api/me', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
 
-    expect(res.body).toEqual({ id: USER_ID, email: 'admin@example.com' });
+    expect(res.body).toEqual({ id: USER_ID, email: 'admin@example.com', accountType: 'staff' });
   });
 
   it('is 401 with no credential', async () => {

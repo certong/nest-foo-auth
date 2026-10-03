@@ -16,7 +16,7 @@ import type { Request, Response } from 'express';
 import { requestMeta } from '../events/request-meta';
 import { Portal } from '../portal/portal';
 import { CurrentUser } from './current-user.decorator';
-import { AuthenticatedUser } from './authenticated-user';
+import { AuthenticatedUser, toAuthenticatedUser } from './authenticated-user';
 import { AuthService } from './auth.service';
 import { Public } from './public.decorator';
 import { LoginDto } from './dto/login.dto';
@@ -148,14 +148,14 @@ export class AuthController {
   }
 
   /**
-   * The body is spelled out field by field: SessionClaims also carries `sid`,
-   * and the response shape the frontends are typed against is { id, email }.
+   * The user is built by toAuthenticatedUser, never by spreading the claims:
+   * SessionClaims also carries `sid`, which does not belong in a body.
    */
   private async signedIn(claims: SessionClaims, portal: Portal, res: Response): Promise<LoginResponse> {
     setRefreshCookie(res, await this.authService.createRefreshToken(claims), this.cookieConfig);
     return {
       accessToken: await this.authService.createAccessToken(claims, portal),
-      user: { id: claims.id, email: claims.email },
+      user: toAuthenticatedUser(claims),
     };
   }
 }

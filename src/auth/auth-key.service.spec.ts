@@ -47,7 +47,10 @@ async function buildService(
 
   const withUser = () => ({
     ...door,
-    account: users.find((u) => u.id === door.accountId) ?? null,
+    account: (() => {
+      const user = users.find((u) => u.id === door.accountId);
+      return user === undefined ? null : { accountType: 'staff', clientId: null, disabledAt: null, ...user };
+    })(),
   });
 
   const matches = (where: Record<string, unknown>) =>
@@ -107,6 +110,8 @@ describe('AuthService.validateKey — the happy path', () => {
       id: USER_ID,
       email: 'admin@example.com',
       sid: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      accountType: 'staff',
+      clientId: null,
     });
   });
 

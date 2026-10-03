@@ -11,10 +11,14 @@ import { TOKEN_KEYS } from './token-keys';
 
 const META: RequestMeta = { portal: 'billing', ip: '203.0.113.7', userAgent: 'vitest' };
 const SID = '6b1f0a52-3c1e-4d8e-9a57-1f2e3d4c5b6a';
+const STAFF = { accountType: 'staff' as const, clientId: null, disabledAt: null };
 const USER_ID = 'a3f1c2d4-0000-4000-8000-000000000001';
 
 async function buildService(row: unknown, door: { accountId?: string } = {}) {
-  const findUnique = vi.fn().mockResolvedValue(row);
+  // By email for sign-in; by id for the account read refresh makes.
+  const findUnique = vi.fn(({ where }: { where: { email?: string; id?: string } }) =>
+    Promise.resolve(where.email !== undefined ? row : where.id === USER_ID ? STAFF : null),
+  );
   // A real one-row table, so a test can assert the lockout was actually
   // cleared rather than that a spy was called.
   const doorRow = { accountId: null as string | null, failedAttempts: 5, lockoutCount: 3, lockedUntil: new Date(), ...door };
@@ -41,12 +45,14 @@ async function buildService(row: unknown, door: { accountId?: string } = {}) {
 describe('AuthService.validateCredentials', () => {
   it('returns the claims for a correct password', async () => {
     const passwordHash = await hashPassword('s3cret-password');
-    const { service } = await buildService({ id: USER_ID, email: 'admin@example.com', passwordHash });
+    const { service } = await buildService({ id: USER_ID, email: 'admin@example.com', passwordHash, ...STAFF });
 
     await expect(service.validateCredentials('admin@example.com', 's3cret-password', META)).resolves.toEqual({
       id: USER_ID,
       email: 'admin@example.com',
       sid: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      accountType: 'staff',
+      clientId: null,
     });
   });
 
@@ -56,7 +62,7 @@ describe('AuthService.validateCredentials', () => {
     // cleared from a shell with database access.
     const passwordHash = await hashPassword('s3cret-password');
     const { service, doorRow } = await buildService(
-      { id: USER_ID, email: 'admin@example.com', passwordHash },
+      { id: USER_ID, email: 'admin@example.com', passwordHash, ...STAFF },
       { accountId: USER_ID },
     );
 
@@ -71,7 +77,7 @@ describe('AuthService.validateCredentials', () => {
     // Anyone with any password could otherwise clear the door's lockout.
     const passwordHash = await hashPassword('s3cret-password');
     const { service, doorRow } = await buildService(
-      { id: USER_ID, email: 'admin@example.com', passwordHash },
+      { id: USER_ID, email: 'admin@example.com', passwordHash, ...STAFF },
       { accountId: 'a-different-account' },
     );
 
@@ -83,7 +89,7 @@ describe('AuthService.validateCredentials', () => {
 
   it('rejects a wrong password', async () => {
     const passwordHash = await hashPassword('s3cret-password');
-    const { service } = await buildService({ id: USER_ID, email: 'admin@example.com', passwordHash });
+    const { service } = await buildService({ id: USER_ID, email: 'admin@example.com', passwordHash, ...STAFF });
 
     await expect(service.validateCredentials('admin@example.com', 'wrong', META)).rejects.toThrow(
       UnauthorizedException,
@@ -117,7 +123,7 @@ describe('AuthService.validateCredentials', () => {
 });
 
 describe('AuthService token minting', () => {
-  const CLAIMS = { id: USER_ID, email: 'admin@example.com', sid: SID };
+  const CLAIMS = { id: USER_ID, email: 'admin@example.com', sid: SID, accountType: 'staff' as const, clientId: null };
 
   it('mints an access token for the requested portal', async () => {
     const { service } = await buildService(null);
@@ -137,7 +143,7 @@ describe('AuthService token minting', () => {
 });
 
 describe('AuthService.refresh', () => {
-  const CLAIMS = { id: USER_ID, email: 'admin@example.com', sid: SID };
+  const CLAIMS = { id: USER_ID, email: 'admin@example.com', sid: SID, accountType: 'staff' as const, clientId: null };
 
   it('exchanges a refresh token for its claims, sid included', async () => {
     const { service } = await buildService(null);

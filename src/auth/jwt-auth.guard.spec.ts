@@ -8,7 +8,7 @@ import { TokenKeys } from './token-keys';
 
 const USER_ID = 'a3f1c2d4-0000-4000-8000-000000000001';
 const SID = '6b1f0a52-3c1e-4d8e-9a57-1f2e3d4c5b6a';
-const CLAIMS = { id: USER_ID, email: 'admin@example.com', sid: SID };
+const CLAIMS = { id: USER_ID, email: 'admin@example.com', sid: SID, accountType: 'staff' as const, clientId: null };
 
 let KEYS: TokenKeys;
 let OTHER_KEYS: TokenKeys;
@@ -34,11 +34,11 @@ function buildGuard(isPublic = false): JwtAuthGuard {
 const bearer = (token: string, portal = 'billing') => ({ portal, headers: { authorization: `Bearer ${token}` } });
 
 describe('JwtAuthGuard', () => {
-  it('admits a valid bearer token and populates request.user with id and email only', async () => {
+  it('admits a valid bearer token and populates request.user without the sid', async () => {
     const request: Record<string, unknown> = bearer(await signAccessToken(CLAIMS, 'billing', KEYS));
 
     await expect(buildGuard().canActivate(contextWith(request))).resolves.toBe(true);
-    expect(request.user).toEqual({ id: USER_ID, email: 'admin@example.com' });
+    expect(request.user).toEqual({ id: USER_ID, email: 'admin@example.com', accountType: 'staff' });
   });
 
   it('lets a @Public() route through with no token', async () => {

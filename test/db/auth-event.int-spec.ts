@@ -95,6 +95,38 @@ describe.skipIf(!HAS_DATABASE)('auth_event against Postgres', () => {
     });
   });
 
+  describe('account types', () => {
+    afterEach(async () => {
+      await db.prisma.account.deleteMany();
+    });
+
+    it('defaults to staff with no client', async () => {
+      const row = await db.prisma.account.create({ data: { email: 'staff@example.com', passwordHash: 'x' } });
+      expect(row).toMatchObject({ accountType: 'staff', clientId: null, disabledAt: null });
+    });
+
+    it('stores a client with its client id', async () => {
+      const row = await db.prisma.account.create({
+        data: { email: 'owner@client.example', passwordHash: 'x', accountType: 'client', clientId: 42 },
+      });
+      expect(row).toMatchObject({ accountType: 'client', clientId: 42 });
+    });
+
+    it.each([
+      [{ accountType: 'admin' }],
+      [{ accountType: 'client' }],
+      [{ accountType: 'staff', clientId: 42 }],
+    ])('refuses %o', async (fields) => {
+      await expect(
+        db.prisma.account.create({ data: { email: `${randomUUID()}@example.com`, passwordHash: 'x', ...fields } }),
+      ).rejects.toThrow();
+    });
+
+    it('accepts portal_denied in the log', async () => {
+      await expect(db.prisma.authEvent.create({ data: { kind: 'portal_denied', portal: 'billing' } })).resolves.toBeDefined();
+    });
+  });
+
   describe('retention', () => {
     it('deletes only rows older than the cutoff, across several batches', async () => {
       const old = new Date('2024-01-01T00:00:00Z');

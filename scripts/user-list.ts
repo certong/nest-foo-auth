@@ -1,5 +1,6 @@
 /**
- * Lists every login account and shows which one the PIN opens.
+ * Lists every login account: its type (staff, or client and which billing
+ * client), whether it is disabled, and which one the PIN opens.
  *
  *   npm run user:list
  *
@@ -25,8 +26,10 @@ async function main(): Promise<void> {
     const width = Math.max(...users.map((u) => u.email.length));
     for (const user of users) {
       const created = user.createdAt.toISOString().slice(0, 10);
+      const type = user.accountType === 'client' ? `client #${user.clientId}` : 'staff';
       console.log(
-        `${user.email.padEnd(width)}  created ${created}${user.holdsKey ? '  ← holds the PIN' : ''}`,
+        `${user.email.padEnd(width)}  ${type.padEnd(14)}  created ${created}` +
+          `${user.disabled ? '  DISABLED' : ''}${user.holdsKey ? '  ← holds the PIN' : ''}`,
       );
     }
     if (!users.some((u) => u.holdsKey)) {

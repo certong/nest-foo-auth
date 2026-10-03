@@ -2,7 +2,7 @@ import { CanActivate, ExecutionContext, Inject, Injectable, UnauthorizedExceptio
 import { Reflector } from '@nestjs/core';
 import { Portal } from '../portal/portal';
 import { IS_PUBLIC_KEY } from './public.decorator';
-import { AuthenticatedUser } from './authenticated-user';
+import { AuthenticatedUser, toAuthenticatedUser } from './authenticated-user';
 import { SessionClaims, verifyToken } from './session-token';
 import { TOKEN_KEYS, TokenKeys } from './token-keys';
 
@@ -60,8 +60,8 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException();
     }
 
-    // id and email only: the /me shape the frontends are typed against.
-    request.user = { id: claims.id, email: claims.email };
+    // The /me shape: never the sid; clientId only for a client login.
+    request.user = toAuthenticatedUser(claims);
     return true;
   }
 

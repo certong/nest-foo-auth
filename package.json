@@ -25,6 +25,8 @@
     "key:set": "ts-node -P tsconfig.json scripts/set-key.ts",
     "user:add": "ts-node -P tsconfig.json scripts/user-add.ts",
     "user:list": "ts-node -P tsconfig.json scripts/user-list.ts",
+    "user:disable": "ts-node -P tsconfig.json scripts/user-disable.ts",
+    "user:enable": "ts-node -P tsconfig.json scripts/user-disable.ts --enable",
     "signing-key:generate": "ts-node -P tsconfig.json scripts/generate-signing-key.ts",
     "events:prune": "ts-node -P tsconfig.json scripts/prune-events.ts",
     "test:db": "vitest run --config vitest.db.config.mts"

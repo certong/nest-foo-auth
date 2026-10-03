@@ -312,7 +312,9 @@ Each product backend carries a small verify-only guard:
    `studio`), and `typ === 'access'`. A `typ: refresh` token, a token for the other
    portal, or any other issuer is a 401.
 4. **Read** `sub` (account id, string), `email` (string), `sid` (uuid string).
-   Require all three to be non-empty strings; otherwise 401.
+   Require all three to be non-empty strings; otherwise 401. Since the
+   account-types change, also read `account_type` and, for clients,
+   `client_id`. See `2026-10-03-account-types-design.md` section 5.
 5. Bearer header only (`Authorization: Bearer <jwt>`), never a cookie. Every
    failure is a 401, never a 403, with no reason in the body — the rule billing's
    guard already documents.

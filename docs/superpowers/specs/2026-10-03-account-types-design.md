@@ -1,7 +1,7 @@
 # Account types: staff and client logins
 
 Date: 2026-10-03
-Status: draft, awaiting review
+Status: approved 2026-10-03 with 7.2 as recommended (disabling is in); built
 Amends: `2026-10-03-nest-foo-auth-design.md` (reopens its "every account may
 enter every portal, no roles" decision, on request)
 
@@ -17,12 +17,13 @@ enter every portal, no roles" decision, on request)
 
 ## 2. Data model
 
-Two columns on `auth.account`:
+Three columns on `auth.account`:
 
 | Column | Type | Meaning |
 |---|---|---|
 | `account_type` | `VARCHAR(16) NOT NULL DEFAULT 'staff'`, CHECK in (`staff`, `client`) | What kind of login this is. Readable at a glance in any query |
 | `client_id` | `INTEGER NULL` | The billing client this login belongs to (`public.client.id`). Set only for client logins |
+| `disabled_at` | `TIMESTAMP(3) NULL` | Set when the login is cut off (decision 7.2). Login and refresh refuse it |
 
 ```sql
 ALTER TABLE auth.account
@@ -137,8 +138,7 @@ The spec §8 contract gains:
 ## 8. Not in this change
 
 Creating client logins from a screen (invite emails, an admin API), roles
-within staff, and anything in the studio repo. Disabling accounts is in or out
-depending on decision 7.2.
+within staff, and anything in the studio repo.
 
 ## 9. Migration and rollout
 
@@ -150,3 +150,28 @@ depending on decision 7.2.
 - Tests: the portal matrix at login, PIN, refresh and `/me`; refresh across
   portals refused for a client; claims present or absent by type; CHECKs in the
   DB suite; script validation.
+
+## 10. As built
+
+- Migration `20261003140000_account_types`: the three columns, both CHECKs, the
+  `client_id` index, and `portal_denied` added to `auth_event_kind_check`.
+  Rehearsed on the PG16 and PG18 copies after the handover. The probes refuse a
+  client without a client id, staff with one, and an unknown type. A fresh
+  build of all three migrations is structurally identical to the upgraded
+  copy.
+- A **disabled** account fails sign-in exactly like a wrong password (same 401
+  body, same Argon2 cost, a `login_failed` row). A disabled PIN holder is a door
+  that opens nothing: counted and locked like a wrong key.
+- **Refresh** reads the account by primary key. It refuses (401) a missing or
+  disabled account, and a token whose `account_type` or `client_id` no longer
+  matches the row. It then applies the portal table (403 + `portal_denied`).
+- The portal table is in `src/auth/account-type.ts`. Claims are built and
+  checked in `session-token.ts`. The public user shape is built in
+  `authenticated-user.ts`, which never emits `sid` and emits `clientId` only for
+  clients.
+- Scripts: `user:add` takes `USER_ACCOUNT_TYPE` / `USER_CLIENT_ID`; new
+  `user:disable` / `user:enable`; `user:list` shows type, client and disabled;
+  `key:set` and `seed:admin` refuse client accounts.
+- Tests: `test/account-types.e2e-spec.ts` (the portal matrix, the
+  cross-portal refresh, disabling mid-session, re-scoping), additions to the
+  token, service, contract, script and DB suites.

@@ -23,12 +23,22 @@ datasource db {
 // SCHEMA auth`; this model, and 0_init, describe the table exactly as billing
 // left it.
 //
-// There may be several. Nothing distinguishes them: there are no roles, and
-// every account may enter every portal.
+// Two types (account_type): staff, who may enter every portal, and client,
+// who may enter studio only and see only their own client's data there. See
+// src/auth/account-type.ts for the portal table.
 model Account {
   id           String   @id @default(uuid()) @db.Uuid
   email        String   @unique @db.VarChar(255)
   passwordHash String   @map("password_hash") @db.VarChar(255)
+
+  /// 'staff' or 'client'. A CHECK in migration SQL enforces the values.
+  accountType  String   @default("staff") @map("account_type") @db.VarChar(16)
+  /// The billing client (public.client.id) a client login belongs to; null for
+  /// staff. Paired with accountType by a CHECK. No foreign key: this service
+  /// never reads billing's schema.
+  clientId     Int?     @map("client_id")
+  /// Set when the login is cut off. Login and refresh both refuse it.
+  disabledAt   DateTime? @map("disabled_at")
 
   /// Set only on the one account the PIN door opens; null on every other.
   pin          AccountPin?
@@ -39,6 +49,7 @@ model Account {
   // "account" rather than "user", which is reserved in SQL and would need
   // quoting everywhere. Not "profile" or "person" either: this is a way to sign
   // in, not a description of somebody.
+  @@index([clientId])
   @@map("account")
 }
 

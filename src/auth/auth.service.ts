@@ -6,6 +6,7 @@ import { Portal } from '../portal/portal';
 import { PrismaService } from '../prisma/prisma.service';
 import { burnVerifyTime, verifyPassword } from './password';
 import { ACCOUNT_PIN_ID } from './account-pin';
+import { AccountType, canEnter, isAccountType, portalDenied } from './account-type';
 import {
   KEY_MAX_ATTEMPTS,
   keyLocked,
@@ -23,6 +24,35 @@ import { TOKEN_KEYS, TokenKeys } from './token-keys';
 export const INVALID_CREDENTIALS = 'Invalid email or password';
 
 export { KEY_LOCKED, KEY_REJECTED } from './key-lockout';
+
+/** The columns of an account row a session is built from. */
+interface AccountRow {
+  id: string;
+  email: string;
+  accountType: string;
+  clientId: number | null;
+  disabledAt: Date | null;
+}
+
+type SessionAccount = Omit<SessionClaims, 'sid'>;
+
+/**
+ * The account as a session sees it, or null if the row is not one a session may
+ * start from: disabled, or holding an account_type the CHECK should have made
+ * impossible. Null is treated exactly like a wrong password by every caller —
+ * a disabled login must not be told apart from a mistyped one.
+ */
+function sessionAccount(row: AccountRow): SessionAccount | null {
+  if (row.disabledAt !== null || !isAccountType(row.accountType)) {
+    return null;
+  }
+  return {
+    id: row.id,
+    email: row.email,
+    accountType: row.accountType,
+    clientId: row.accountType === 'client' ? row.clientId : null,
+  };
+}
 
 /**
  * Sign-in, refresh and sign-out.
@@ -58,10 +88,18 @@ export class AuthService {
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
 
-    if (!(await verifyPassword(user.passwordHash, password))) {
+    // A disabled account fails exactly like a wrong password: same Argon2 cost
+    // (the verify has already run), same row, same 401. Telling the two apart
+    // would confirm the account exists to whoever is trying it.
+    const account = (await verifyPassword(user.passwordHash, password)) ? sessionAccount(user) : null;
+    if (account === null) {
       await this.log([{ kind: 'login_failed', method: 'password', accountId: user.id, ...fromMeta(meta) }]);
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
+
+    // After the password, never before: refusing a client at billing before
+    // verifying would answer "this email is a client" to anyone who asks.
+    await this.assertPortal(account, 'password', null, meta);
 
     // Signing in with the password clears any PIN lockout on this account's
     // door. The lockout exists to stop an *unauthenticated* caller guessing six
@@ -75,7 +113,7 @@ export class AuthService {
       data: { failedAttempts: 0, lockoutCount: 0, lockedUntil: null },
     });
 
-    return this.startSession({ id: user.id, email: user.email }, 'password', meta);
+    return this.startSession(account, 'password', meta);
   }
 
   /**
@@ -118,12 +156,17 @@ export class AuthService {
       throw await this.recordKeyFailure(door, now, meta);
     }
 
+    // key:set refuses to give the PIN to a client, so this only bites if the
+    // database was edited by hand. Checked anyway: the rule lives in one table
+    // and every door goes through it.
+    await this.assertPortal(operator, 'pin', null, meta);
+
     await this.prisma.accountPin.update({
       where: { id: ACCOUNT_PIN_ID },
       data: { failedAttempts: 0, lockoutCount: 0, lockedUntil: null },
     });
 
-    return this.startSession({ id: operator.id, email: operator.email }, 'pin', meta);
+    return this.startSession(operator, 'pin', meta);
   }
 
   /**
@@ -133,7 +176,7 @@ export class AuthService {
    * portal_entry. One insert for both.
    */
   private async startSession(
-    account: { id: string; email: string },
+    account: SessionAccount,
     method: 'password' | 'pin',
     meta: RequestMeta,
   ): Promise<SessionClaims> {
@@ -160,14 +203,34 @@ export class AuthService {
    * fails closed instead of 500ing.
    */
   private async resolveOperator(
-    door: { keyHash: string | null; account: { id: string; email: string } | null },
+    door: { keyHash: string | null; account: AccountRow | null },
     key: string,
-  ): Promise<{ id: string; email: string } | null> {
+  ): Promise<SessionAccount | null> {
     if (door.keyHash === null || door.account === null) {
       await burnVerifyTime(key);
       return null;
     }
-    return (await verifyPassword(door.keyHash, key)) ? door.account : null;
+    // A disabled holder is a door that opens nothing — verified, counted and
+    // locked exactly like a wrong key, so the countdown cannot reveal it.
+    return (await verifyPassword(door.keyHash, key)) ? sessionAccount(door.account) : null;
+  }
+
+  /**
+   * Refuses, with 403 and a portal_denied row, an account type the request's
+   * portal does not admit (account-type.ts). Only ever called once the
+   * credential has been verified.
+   */
+  private async assertPortal(
+    account: { id: string; accountType: AccountType },
+    method: 'password' | 'pin' | null,
+    sid: string | null,
+    meta: RequestMeta,
+  ): Promise<void> {
+    if (canEnter(account.accountType, meta.portal)) {
+      return;
+    }
+    await this.log([{ kind: 'portal_denied', method, accountId: account.id, sid, ...fromMeta(meta) }]);
+    throw portalDenied();
   }
 
   /**
@@ -285,10 +348,18 @@ export class AuthService {
    * Exchanges a refresh token for its claims, and records that the session
    * reached the portal this request came from (CP-37, spec 7.2).
    *
-   * The claims are re-read from the token rather than from the database: it is
-   * signed by us, short-lived, and this runs on every access-token renewal, so
-   * a row read here would be a query on the hot path for a value that cannot
-   * have changed without the password changing too.
+   * One primary-key read of the account per refresh (account-types spec 7.2).
+   * Billing's version read nothing here, reasoning that nothing in the token
+   * could change without the password changing too. Disabling a login and
+   * changing its type are exactly such changes: without this read a disabled
+   * client keeps minting tokens for up to twelve hours. A token whose type or
+   * client no longer matches the row is refused, which sends the user back to
+   * sign in rather than quietly re-scoping a live session.
+   *
+   * Then the portal rule. This is the check that matters most: there is one
+   * refresh cookie for every portal, so a client who signed in at studio
+   * reaches here from the billing origin the moment the billing frontend tries
+   * to refresh — and must get no billing token.
    *
    * The portal_entry insert runs on every refresh and is a no-op after the first
    * per (sid, portal) — that is the partial unique index's job. Because the
@@ -307,6 +378,21 @@ export class AuthService {
     if (claims === null) {
       throw new UnauthorizedException();
     }
+
+    const row = await this.prisma.account.findUnique({
+      where: { id: claims.id },
+      select: { accountType: true, clientId: true, disabledAt: true },
+    });
+    if (
+      row === null ||
+      row.disabledAt !== null ||
+      row.accountType !== claims.accountType ||
+      (row.clientId ?? null) !== claims.clientId
+    ) {
+      throw new UnauthorizedException();
+    }
+
+    await this.assertPortal(claims, null, claims.sid, meta);
     await this.log([{ kind: 'portal_entry', accountId: claims.id, sid: claims.sid, ...fromMeta(meta) }]);
     return claims;
   }

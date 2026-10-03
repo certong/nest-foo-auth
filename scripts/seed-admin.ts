@@ -1,5 +1,5 @@
 /**
- * Creates or updates the single administrator account.
+ * Creates or updates a staff account's password.
  *
  * Re-runnable, and deliberately so: there is no password reset flow, so running
  * this again with a new ADMIN_PASSWORD is how the password gets changed and how
@@ -28,10 +28,18 @@ async function main(): Promise<void> {
   const app = await NestFactory.createApplicationContext(ScriptsModule, { logger: ['error'] });
   const prisma = app.get(PrismaService);
 
+  // Staff only. Resetting a client login's password from here would make this
+  // the way to hand someone the admin's script — and would leave them a client.
+  const existing = await prisma.account.findUnique({ where: { email } });
+  if (existing !== null && existing.accountType !== 'staff') {
+    await app.close();
+    throw new Error(`${email} is a ${existing.accountType} account; seed:admin only manages staff`);
+  }
+
   const passwordHash = await hashPassword(password);
   const user = await prisma.account.upsert({
     where: { email },
-    create: { email, passwordHash },
+    create: { email, passwordHash, accountType: 'staff' },
     update: { passwordHash },
   });
 

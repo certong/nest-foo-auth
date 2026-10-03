@@ -10,6 +10,8 @@ import { Portal } from '../portal/portal';
  *   key_failed     a wrong PIN that did not lock the door
  *   key_locked     a wrong PIN that started a lockout
  *   logout         a session's refresh cookie was cleared
+ *   portal_denied  a verified login or refresh at a portal its account type
+ *                  may not enter (a client at billing)
  */
 export type AuthEventKind =
   | 'login_success'
@@ -17,7 +19,8 @@ export type AuthEventKind =
   | 'login_failed'
   | 'key_failed'
   | 'key_locked'
-  | 'logout';
+  | 'logout'
+  | 'portal_denied';
 
 export type AuthMethod = 'password' | 'pin';
 

@@ -7,7 +7,10 @@ const CLAIMS = {
   id: 'a3f1c2d4-0000-4000-8000-000000000001',
   email: 'admin@example.com',
   sid: '6b1f0a52-3c1e-4d8e-9a57-1f2e3d4c5b6a',
+  accountType: 'staff' as const,
+  clientId: null,
 };
+const CLIENT = { ...CLAIMS, accountType: 'client' as const, clientId: 42 };
 
 let KEYS: TokenKeys;
 let OTHER_KEYS: TokenKeys;
@@ -23,7 +26,7 @@ const verifySession = (token: string) => verifyToken(token, KEYS, 'access', 'bil
 
 /** A hand-built token, so a case can vary exactly one thing. */
 function craft(payload: Record<string, unknown>, keys = KEYS) {
-  return new SignJWT({ email: CLAIMS.email, sid: CLAIMS.sid, typ: 'access', ...payload })
+  return new SignJWT({ email: CLAIMS.email, sid: CLAIMS.sid, typ: 'access', account_type: 'staff', ...payload })
     .setProtectedHeader({ alg: 'ES256', kid: keys.kid })
     .setSubject(CLAIMS.id)
     .setIssuer(TEST_ISSUER)
@@ -73,6 +76,7 @@ describe('access token', () => {
         email: 'attacker@example.com',
         sid: CLAIMS.sid,
         typ: 'access',
+        account_type: 'staff',
         iss: TEST_ISSUER,
         aud: 'billing',
         exp: Math.floor(Date.now() / 1000) + 3600,
@@ -219,6 +223,40 @@ describe('token lifetimes', () => {
     // holds the token.
     const payload = JSON.parse(Buffer.from((await signSession()).split('.')[1]!, 'base64url').toString());
 
-    expect(Object.keys(payload).sort()).toEqual(['aud', 'email', 'exp', 'iat', 'iss', 'sid', 'sub', 'typ']);
+    expect(Object.keys(payload).sort()).toEqual(['account_type', 'aud', 'email', 'exp', 'iat', 'iss', 'sid', 'sub', 'typ']);
+  });
+});
+
+describe('account type claims', () => {
+  const payloadOf = (token: string) => JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString());
+
+  it('carries account_type and no client_id for staff', async () => {
+    const payload = payloadOf(await signAccessToken(CLAIMS, 'billing', KEYS));
+    expect(payload.account_type).toBe('staff');
+    expect(payload).not.toHaveProperty('client_id');
+  });
+
+  it('carries account_type and client_id for a client, in both tokens', async () => {
+    for (const token of [await signAccessToken(CLIENT, 'studio', KEYS), await signRefreshToken(CLIENT, KEYS)]) {
+      expect(payloadOf(token)).toMatchObject({ account_type: 'client', client_id: 42 });
+    }
+  });
+
+  it('round-trips a client', async () => {
+    expect(await verifyToken(await signAccessToken(CLIENT, 'studio', KEYS), KEYS, 'access', 'studio')).toEqual(CLIENT);
+    expect(await verifyToken(await signRefreshToken(CLIENT, KEYS), KEYS, 'refresh')).toEqual(CLIENT);
+  });
+
+  it.each([
+    ['no account_type', { account_type: undefined }],
+    ['an unknown account_type', { account_type: 'admin' }],
+    ['a client with no client_id', { account_type: 'client' }],
+    ['a client with a string client_id', { account_type: 'client', client_id: '42' }],
+    ['a client with client_id 0', { account_type: 'client', client_id: 0 }],
+    ['a client with a fractional client_id', { account_type: 'client', client_id: 4.2 }],
+    ['staff carrying a client_id', { account_type: 'staff', client_id: 42 }],
+  ])('rejects a token with %s', async (_label, payload) => {
+    const token = await craft(payload).setExpirationTime('15m').sign(KEYS.privateKey);
+    expect(await verifySession(token)).toBeNull();
   });
 });

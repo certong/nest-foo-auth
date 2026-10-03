@@ -44,6 +44,9 @@ async function buildController() {
     email: 'admin@example.com',
     passwordHash: await hashPassword(PASSWORD),
     keyHash: await hashPassword(KEY),
+    accountType: 'staff',
+    clientId: null,
+    disabledAt: null,
   };
   const account = { findUnique: () => Promise.resolve(user) };
   // The door points at this account, so both sign-in routes touch it: /auth/key
