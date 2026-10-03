@@ -68,8 +68,9 @@ engine and run on the developer machine (or once the domain is allowed).
   verify, rule probes, rollback; moved tables structurally identical to a fresh
   `0_init` + `add_auth_event` build (columns, constraint and index names, both
   CHECKs, FK, PG18 NOT NULL names). **Done.**
-- [ ] Prisma-level checks (resolve writes `auth._prisma_migrations`, no drift,
-  partial index not dropped, pooled connection) — Task 13.
+- [x] Prisma-level checks (resolve writes `auth._prisma_migrations`, no drift,
+  partial index not dropped) — **done locally 2026-10-03**.
+- [ ] Pooled connection — on the Neon cutover rehearsal branch.
 
 ## Task 3 — Port the unchanged modules and their specs
 
@@ -242,9 +243,10 @@ spec amendments (rehearsal results; `BIGSERIAL` rather than identity).
 - [x] Runbook: snapshot, precheck, move, `migrate resolve --applied 0_init`,
   `migrate deploy`, verify, drift check, smoke, rollback — each with the exact
   command, using the SQL files from Task 2.
-- [ ] With a real Prisma engine (developer machine, or once allowed): items
-  11.2.1–11.2.6 of the spec, including the pooled connection through PgBouncer
-  in transaction mode.
+- [x] With a real Prisma engine: spec items 11.2.1–11.2.4, and 11.2.5 over the
+  direct connection — **done locally 2026-10-03** (runbook, Rehearsal record).
+- [ ] 11.2.5 through PgBouncer in transaction mode (Neon pooler) and 11.2.6
+  (billing's drift check, with billing's migration).
 
 ## Task 14 — Verify, sync, commit
 

@@ -24,5 +24,5 @@ response shapes: `{ id, email }` stays, `accountType` and `clientId?` join it.
 - [x] **Tests**: portal matrix e2e, cross-portal refresh, disable mid-session,
   re-scope, contract (studio reads `client_id`), script validation, DB CHECKs.
 - [x] **Docs**: README, `.env.example`, spec §10, main spec §8 pointer.
-- [ ] **On a machine with a Prisma engine**: `npx prisma migrate deploy` after the
-  handover; `npm run test:db`.
+- [x] **On a machine with a Prisma engine**: `npx prisma migrate deploy` after the
+  handover; `npm run test:db`. **Done locally 2026-10-03** (runbook, Rehearsal record).

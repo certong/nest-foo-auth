@@ -148,9 +148,33 @@ cloud workspace. Nothing ran against a real database.
 | rollback restores the precheck state; `public._prisma_migrations` untouched (15 rows) | ✅ | ✅ |
 | `ON CONFLICT DO NOTHING` + partial index: repeats in one statement, across statements and 20 concurrent inserts leave one `portal_entry` | — | ✅ |
 
-**Not yet run** (needs a real Prisma engine; `binaries.prisma.sh` is blocked in
-the cloud workspace): steps 3, 4 and 6 with Prisma itself — that `resolve`
-writes `auth._prisma_migrations`, that `deploy` applies `add_auth_event`, that
-the drift check is clean and does not try to drop the partial index — and the
-service running through Neon's pooler. Steps 3–4 were simulated with `psql`.
-Run `scripts/handover/rehearse.sh` against local to close these.
+Steps 3–4 were simulated with `psql` there; the Prisma run below closes them.
+
+### With Prisma, local (2026-10-03)
+
+`scripts/handover/rehearse.sh` against the developer machine's local
+`foo_platform_db` (Postgres 18.6 in Docker), Prisma 6.19.3. Snapshot first, with
+the container's own `pg_dump` — the Homebrew client is 17 and refuses an 18
+server:
+
+    docker exec -e PGPASSWORD=… postgres pg_dump -Fc -h localhost -U foo \
+      -d foo_platform_db > ~/foo_platform_db-pre-handover.dump
+
+| Check (spec §11.2) | Result |
+|---|---|
+| precheck all `t` (1 account, PIN set) | ✅ |
+| 1. `migrate resolve --applied 0_init` creates `auth._prisma_migrations`; `public._prisma_migrations` untouched (15 rows, same digest before and after) | ✅ |
+| `migrate deploy` applies `add_auth_event` and `account_types` | ✅ |
+| verify all `t`, account digest unchanged, "rule probes: all refused as expected" | ✅ |
+| 2./3. drift check: empty migration, exit 0 — Prisma does **not** try to drop `auth_event_portal_entry_once`; the §11.2.3 fallback is not needed | ✅ |
+| 4. both `account_pin` CHECKs present and refusing | ✅ |
+| `npm run test:db` (16 tests) | ✅ |
+| 5. service on the **direct** URL: login, refresh from both origins (SSO), `/me`, logout, wrong password 401, no/foreign Origin 403, aud mismatch 401; client account gets 403 at billing (login and refresh) and signs in at studio with `client_id`; `auth_event` rows as specified, one `portal_entry` per (sid, portal) | ✅ |
+
+Smoke-test note: every POST, including `refresh` and `logout` with no body, must
+send `Content-Type: application/json` or it gets 415 (the CSRF control). The
+portals' fetch calls must set it.
+
+**Still open:** §11.2.5 through Neon's **pooler** (Step 3 of the cutover
+rehearsal, on a new Neon branch from dev) and §11.2.6, billing's own drift check
+after the move, which belongs to billing's migration.
