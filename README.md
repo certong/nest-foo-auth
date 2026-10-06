@@ -35,6 +35,33 @@ Access tokens last 15 minutes, the refresh cookie 12 hours. Claims: `iss`,
 product backends verify against is spec section 8, and
 `test/contract.e2e-spec.ts` runs it.
 
+## Hostnames
+
+Decided 2026-10-07 (FA-13). Every host is under `foocertong.com`, so each
+frontend is same-site with its auth host and the browser sends the host-only
+`SameSite=Lax` refresh cookie.
+
+| Environment | Auth (this service) | Billing frontend |
+|---|---|---|
+| Production | `auth-api.foocertong.com` | `billing.foocertong.com` |
+| UAT | `auth-api-uat.foocertong.com` | `billing-uat.foocertong.com` |
+| Development | `auth-api-dev.foocertong.com` | `billing-dev.foocertong.com` |
+
+What follows from that, shown for production (swap the hosts for UAT and
+development):
+
+| Where | Variable | Value |
+|---|---|---|
+| nest-foo-auth | `AUTH_ISSUER` | `https://auth-api.foocertong.com` |
+| nest-foo-auth | `AUTH_PORTAL_ORIGINS` | `https://billing.foocertong.com=billing` |
+| nest-foo-billing | `AUTH_ISSUER` | the same string as above, character for character |
+| nest-foo-billing | `AUTH_JWKS_URL` | `https://auth-api.foocertong.com/.well-known/jwks.json` |
+| react-foo-billing | `VITE_AUTH_URL` | `https://auth-api.foocertong.com` |
+
+The studio origin joins `AUTH_PORTAL_ORIGINS` when studio exists. A frontend on
+`localhost` is cross-site with a deployed auth host, so the cookie will not come
+back: for local work, run this service locally on port 3001.
+
 ## Running it
 
 ```bash
