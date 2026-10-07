@@ -29,6 +29,7 @@
     "user:enable": "ts-node -P tsconfig.json scripts/user-disable.ts --enable",
     "signing-key:generate": "ts-node -P tsconfig.json scripts/generate-signing-key.ts",
     "events:prune": "ts-node -P tsconfig.json scripts/prune-events.ts",
+    "smoke": "node scripts/smoke.mjs",
     "test:db": "vitest run --config vitest.db.config.mts"
   },
   "dependencies": {

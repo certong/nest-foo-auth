@@ -12,6 +12,7 @@ client's data ([spec](docs/superpowers/specs/2026-10-03-account-types-design.md)
 
 Design: [`docs/superpowers/specs/2026-10-03-nest-foo-auth-design.md`](docs/superpowers/specs/2026-10-03-nest-foo-auth-design.md).
 Moving the tables over from billing: [`docs/runbooks/auth-table-handover.md`](docs/runbooks/auth-table-handover.md).
+Deploying it: [`docs/runbooks/deploy.md`](docs/runbooks/deploy.md).
 
 ## Endpoints
 
@@ -79,6 +80,7 @@ npm run start:dev               # http://localhost:3001
 ```bash
 npm test                        # no database needed
 npm run test:db                 # TEST_DATABASE_URL from .env
+npm run smoke -- http://localhost:3001 http://localhost:5173    # a running service, from outside
 TEST_DATABASE_URL=postgresql://foo:PASSWORD@localhost:5432/postgres npm run test:db
 ```
 
