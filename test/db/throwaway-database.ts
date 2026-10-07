@@ -29,10 +29,24 @@ export async function createThrowawayDatabase(): Promise<ThrowawayDatabase> {
   url.pathname = `/${name}`;
   url.searchParams.set('schema', 'auth');
 
-  execFileSync('npx', ['prisma', 'migrate', 'deploy'], {
-    env: { ...process.env, DATABASE_URL: url.toString(), DIRECT_URL: url.toString() },
-    stdio: 'pipe',
-  });
+  try {
+    // shell: true on Windows. The npx on PATH there is npx.cmd, and
+    // execFileSync does not try the .cmd extension, so without this every case
+    // in this suite dies with "spawnSync npx ENOENT" before its first
+    // assertion. The arguments are literals, so the shell has nothing to quote.
+    execFileSync('npx', ['prisma', 'migrate', 'deploy'], {
+      env: { ...process.env, DATABASE_URL: url.toString(), DIRECT_URL: url.toString() },
+      stdio: 'pipe',
+      shell: process.platform === 'win32',
+    });
+  } catch (error) {
+    // The database exists by this point, so a failure here would otherwise
+    // leave it behind on the server: drop() is only reachable once this
+    // function returns.
+    await admin.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+    await admin.$disconnect();
+    throw error;
+  }
 
   const prisma = new PrismaClient({ datasources: { db: { url: url.toString() } } });
 
