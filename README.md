@@ -94,7 +94,9 @@ deliberately, so that one sentence describes where a change is in both services:
 
 `development` is the default branch, so a pull request opened without saying
 otherwise targets it. `feat/standalone-auth-service`, the branch this service
-was built on, is merged and kept only for history.
+was built on, was merged and then deleted on 2026-10-07; its commits are in the
+history of all three branches, so nothing is lost by its absence. Only the three
+above exist on the remote.
 
 All three are protected by one ruleset (`protected branches (development, uat,
 main)`) rather than three separate rules, so they cannot drift apart: a merge
