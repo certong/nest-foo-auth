@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, uat, development]
+
+# A newer push to the same ref makes the previous run's answer irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: types, tests, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # node-version-file rather than a literal version here. .nvmrc is the one
+      # pin, and a second copy of the number is how the Dockerfile came to build
+      # on Node 20 while .nvmrc said 24 (FA-12).
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # Deliberately not --ignore-scripts: the postinstall runs `prisma
+      # generate`, and tsc cannot type-check without the generated client.
+      # `prepare` installs git hooks and already exits 0 when there is no
+      # working tree, so it is harmless here.
+      - run: npm ci
+
+      - run: npx tsc --noEmit
+      - run: npm test
+      - run: npm run build
+
+  database:
+    name: database suite
+    runs-on: ubuntu-latest
+
+    # The rules this suite proves belong to Postgres, not to Prisma: the partial
+    # unique index behind "one portal_entry per session per portal", the
+    # auth_event CHECKs, and the retention DELETE. They need a real server.
+    # Pinned to 18 because that is what UAT runs.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # Without TEST_DATABASE_URL every case skips itself and the job still goes
+      # green -- which is the exact failure this job exists to prevent. The
+      # suite creates its own throwaway database on this server, migrates it,
+      # and drops it again; it never touches a named database.
+      - run: npm run test:db
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+
+  image:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Builds the real Dockerfile. This is what would have caught the image
+      # sitting on node:20-slim while .nvmrc and the spec said Node 24 (FA-12),
+      # and it is the only job that exercises the production image at all.
+      - run: docker build -t nest-foo-auth:ci .
