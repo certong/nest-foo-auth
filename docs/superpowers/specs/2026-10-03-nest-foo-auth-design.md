@@ -606,6 +606,11 @@ repo, and running anything against UAT or production.
 - **Commit convention.** Billing's plan says no `Co-Authored-By` trailer in that
   repo. Same rule here? And should I commit on a branch in this repo, or leave the
   work uncommitted for you?
+
+  **Answered 2026-10-07.** Not the same rule: work authored with Claude carries a
+  `Co-Authored-By` trailer, because the tool doing the authoring requires one. And
+  commit on a branch — every change lands by pull request now, since `development`,
+  `uat` and `main` are protected and need a green CI run to merge (FA-18).
 - **Throttle storage.** The login throttle is in-memory per instance (unchanged).
   If this service runs more than one instance, the effective limit is per
   instance. Fine for now; a Redis store is the fix if it scales out.
