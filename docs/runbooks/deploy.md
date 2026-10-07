@@ -6,7 +6,7 @@ steps with a different column of the table below.
 
 Deploying is spec 11.4 step 1 and nothing more: the service is up but **cannot
 serve logins yet**, because `account` and `account_pin` are still in billing's
-`public` schema. That is expected, and step 5 here passes without them. Moving
+`billing` schema. That is expected, and step 5 here passes without them. Moving
 the tables is the cut-over, [`auth-table-handover.md`](auth-table-handover.md)
 (FA-15 for UAT, FA-16 for production).
 
@@ -74,7 +74,7 @@ a `kid`.
 ### 3. Set the variables
 
 From the two tables above. `DATABASE_URL` is the pooler URL with `schema=auth`
-on the end; without `schema=auth` Prisma reads `public`, which is billing's.
+on the end; without `schema=auth` Prisma reads `public`, which is empty (billing's tables are in `billing`).
 
 ### 4. Point the hostname at it
 
@@ -109,7 +109,7 @@ npx prisma migrate resolve --applied 0_init   # handover runbook, step 3
 npx prisma migrate deploy                     # step 4
 ```
 
-`0_init` refuses to run on a database whose tables are still in `public`, so
+`0_init` refuses to run on a database whose tables are still in billing's schema, so
 running `migrate deploy` too early stops with a message instead of doing harm.
 
 Existing accounts move with the tables, so there is normally nothing to seed.

@@ -9,6 +9,12 @@ Read alongside `nest-foo-billing/docs/superpowers/specs/2026-08-30-backend-owned
 and the comments in `nest-foo-billing/src/auth/`. This spec does not repeat their
 reasoning; where code moves unchanged, the comments move with it.
 
+Revised 2026-10-08: billing's tables moved from `public` to a schema of their
+own, `billing` (nest-foo-billing README, "Billing's schema"). Where this spec
+says `public` for billing's schema, in sections 2, 9.1 and 11, read `billing`.
+The handover scripts, the runbook and the `0_init` guard name `billing`; the
+guard also still refuses a database whose tables are in `public`.
+
 Section 15 lists every decision **I** made that was not in the brief. Everything
 else marked **Decided** comes from the brief and is not re-opened here.
 
