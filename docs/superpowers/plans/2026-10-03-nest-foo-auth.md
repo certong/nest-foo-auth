@@ -34,8 +34,15 @@ gains a `sid` and a portal; nothing else about its security logic moves.
 - Raw SQL always writes `auth.` explicitly.
 - Default test suite needs no database (`PrismaService` is stubbed). The DB
   suite (`npm run test:db`) runs only when `TEST_DATABASE_URL` is set.
-- Commits: feature branch `feat/standalone-auth-service`, no `Co-Authored-By`
-  trailer.
+- Commits: a feature branch off `development`, which is merged back by pull
+  request (FA-18). Work authored with Claude carries a `Co-Authored-By` trailer.
+
+  Amended 2026-10-07. This said "branch `feat/standalone-auth-service`, no
+  `Co-Authored-By` trailer". Both halves have stopped being true: that branch was
+  merged and deleted, and the trailer is required of the tool doing the authoring,
+  so the rule as written could not be followed. Task 14 below records the five
+  commits made under the old rule; those commits are unchanged and still in the
+  history, and are left as they were.
 
 ## Sandbox note (for whoever runs this plan from the cloud workspace)
 
