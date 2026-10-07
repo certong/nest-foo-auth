@@ -46,7 +46,7 @@ frontend is same-site with its auth host and the browser sends the host-only
 |---|---|---|
 | Production | `auth-api.foocertong.com` | `billing.foocertong.com` |
 | UAT | `auth-api-uat.foocertong.com` | `billing-uat.foocertong.com` |
-| Development | `auth-api-dev.foocertong.com` | `billing-dev.foocertong.com` |
+| Development | `api-auth-development.foocertong.com` | `billing-dev.foocertong.com` |
 
 What follows from that, shown for production (swap the hosts for UAT and
 development):

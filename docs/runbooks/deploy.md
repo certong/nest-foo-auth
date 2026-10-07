@@ -18,7 +18,7 @@ the bottom as it is done.
 | Variable | Development | UAT | Production |
 |---|---|---|---|
 | `APP_ENV` | `dev` | `uat` | `prod` |
-| `AUTH_ISSUER` | `https://auth-api-dev.foocertong.com` | `https://auth-api-uat.foocertong.com` | `https://auth-api.foocertong.com` |
+| `AUTH_ISSUER` | `https://api-auth-development.foocertong.com` | `https://auth-api-uat.foocertong.com` | `https://auth-api.foocertong.com` |
 | `AUTH_PORTAL_ORIGINS` | `https://billing-dev.foocertong.com=billing` | `https://billing-uat.foocertong.com=billing` | `https://billing.foocertong.com=billing` |
 | `AUTH_SIGNING_JWK` | its own key | its own key | its own key |
 | `DATABASE_URL` | Neon dev, **pooler** host, `…&schema=auth` | Neon UAT, the same | Neon production, the same |
@@ -81,7 +81,7 @@ on the end; without `schema=auth` Prisma reads `public`, which is billing's.
 Add the custom domain on the host, create the DNS record it asks for, and wait
 for the certificate. Then deploy, and read the first line the service logs:
 
-    listening on <port> — APP_ENV=dev db=<pooler host> issuer=https://auth-api-dev.foocertong.com
+    listening on <port> — APP_ENV=dev db=<pooler host> issuer=https://api-auth-development.foocertong.com
 
 All three must be the environment you meant. A boot failure names the variable
 that is wrong.
@@ -89,7 +89,7 @@ that is wrong.
 ### 5. Smoke, without an account
 
 ```bash
-npm run smoke -- https://auth-api-dev.foocertong.com https://billing-dev.foocertong.com
+npm run smoke -- https://api-auth-development.foocertong.com https://billing-dev.foocertong.com
 ```
 
 Seven checks, no account and no database needed: health, the JWKS (ES256 public
@@ -117,7 +117,7 @@ Then, with an account that exists there:
 
 ```bash
 SMOKE_EMAIL=you@example.com SMOKE_PASSWORD=… \
-  npm run smoke -- https://auth-api-dev.foocertong.com https://billing-dev.foocertong.com
+  npm run smoke -- https://api-auth-development.foocertong.com https://billing-dev.foocertong.com
 ```
 
 Six more checks: sign in, the cookie's attributes (`HttpOnly`, `Secure`,
