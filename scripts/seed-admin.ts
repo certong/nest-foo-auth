@@ -6,48 +6,35 @@
  * a lost password is recovered.
  *
  *   ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='...' npm run seed:admin
+ *
+ * It manages staff accounts only. A client login's password is refused rather
+ * than reset — see seedAdmin in src/auth/user-admin.ts.
  */
 import { NestFactory } from '@nestjs/core';
 import { ScriptsModule } from '../src/scripts.module';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { hashPassword } from '../src/auth/password';
+import { seedAdmin } from '../src/auth/user-admin';
 
 async function main(): Promise<void> {
+  // Normalised before the emptiness check, so ADMIN_EMAIL='   ' is "unset"
+  // rather than an account with a blank address.
   const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   const password = process.env.ADMIN_PASSWORD;
 
   if (!email || !password) {
     throw new Error('ADMIN_EMAIL and ADMIN_PASSWORD must both be set');
   }
-  if (password.length < 12) {
-    // The only account on the system, behind a public login route. A short
-    // password here is the whole attack surface.
-    throw new Error('ADMIN_PASSWORD must be at least 12 characters');
-  }
 
   const app = await NestFactory.createApplicationContext(ScriptsModule, { logger: ['error'] });
-  const prisma = app.get(PrismaService);
-
-  // Staff only. Resetting a client login's password from here would make this
-  // the way to hand someone the admin's script — and would leave them a client.
-  const existing = await prisma.account.findUnique({ where: { email } });
-  if (existing !== null && existing.accountType !== 'staff') {
+  try {
+    const user = await seedAdmin(app.get(PrismaService), email, password);
+    console.log(`Administrator ready: ${user.email}`);
+  } finally {
     await app.close();
-    throw new Error(`${email} is a ${existing.accountType} account; seed:admin only manages staff`);
   }
-
-  const passwordHash = await hashPassword(password);
-  const user = await prisma.account.upsert({
-    where: { email },
-    create: { email, passwordHash, accountType: 'staff' },
-    update: { passwordHash },
-  });
-
-  console.log(`Administrator ready: ${user.email}`);
-  await app.close();
 }
 
 main().catch((error: unknown) => {
-  console.error(error);
+  console.error(error instanceof Error ? error.message : error);
   process.exit(1);
 });

@@ -170,6 +170,18 @@ own plan records 586 passing on 2026-10-03.
 6. The plan names three files that do not exist: `src/portal/current-portal.decorator.ts`, `test/audience.e2e-spec.ts`, `test/db/setup.ts` (the real one is `test/db/throwaway-database.ts`). Nothing is missing in behaviour.
 7. Billing's handover branch and the frontend's login branch were local only until they were pushed on 2026-10-06. Neither is merged.
 
+### Closed since this reading
+
+The rows and gaps above are the 2026-10-06 reading and are left as they were. What has changed since:
+
+`npm test` on 2026-10-07, Node 24.20.0: **31 files, 344 tests, all passing** (was 28 and 327).
+
+- **Gap 3, 4 and 6 — closed by FA-19 on 2026-10-07.** `TRUST_PROXY` now has `test/trust-proxy.e2e-spec.ts` (the hop count, and that an unset variable leaves Express alone), asserted on the `auth_event` row. `seed:admin`'s logic moved to `seedAdmin` in `src/auth/user-admin.ts` and its refusal of a client account is covered in `user-admin.spec.ts`; the script is now the same thin wrapper as its six siblings. `ScriptsModule` has `src/scripts.module.spec.ts`, which also pins what it leaves out — no signing key, no portal map, no retention sweep. `signing-key:generate` has `test/signing-key-generate.spec.ts`, which runs the real script and feeds what it prints back to `loadTokenKeys`. The three wrong file names are corrected in the plan.
+  - Still open from gap 4: the other five script wrappers have no spec of their own. Their argument and environment handling is a few lines each over functions that are tested; FA-19 put them out of scope.
+  - Still open from row 10: the `PORT` default in `main.ts`. It is unreachable from a test without splitting `bootstrap()` out of the entry point, which FA-19's "change no behaviour" rules out.
+- **Gap 2 — closed on 2026-10-07** (`d9afb53`): the `Dockerfile` builds on Node 24.
+- **Gap 5, partly — closed on 2026-10-07** (`8453e72`): `main`, `uat` and `development` exist and are pushed, and `.github/workflows/ci.yml` runs types, tests, the database suite and the image build. Still open in FA-18: GitHub's default branch and branch protection. Nothing is deployed yet (FA-12).
+
 ## 8. Tickets
 
 FA-1 (epic), FA-2 to FA-11 (built, Done), FA-12 to FA-21 (open). Billing side: CP-77 (epic), CP-78 to CP-84.
