@@ -180,7 +180,7 @@ The rows and gaps above are the 2026-10-06 reading and are left as they were. Wh
   - Still open from gap 4: the other five script wrappers have no spec of their own. Their argument and environment handling is a few lines each over functions that are tested; FA-19 put them out of scope.
   - Still open from row 10: the `PORT` default in `main.ts`. It is unreachable from a test without splitting `bootstrap()` out of the entry point, which FA-19's "change no behaviour" rules out.
 - **Gap 2 — closed on 2026-10-07** (`d9afb53`): the `Dockerfile` builds on Node 24.
-- **Gap 5, partly — closed on 2026-10-07** (`8453e72`): `main`, `uat` and `development` exist and are pushed, and `.github/workflows/ci.yml` runs types, tests, the database suite and the image build. Still open in FA-18: GitHub's default branch and branch protection. Nothing is deployed yet (FA-12).
+- **Gap 5, all but deployment — closed on 2026-10-07** (`8453e72` and FA-18). `development`, `uat` and `main` exist and are pushed; `development` is the default branch; all three are protected by one ruleset requiring a pull request and a green CI run. `.github/workflows/ci.yml` has now actually run — 31 files, 344 tests, the database suite against Postgres 18 and the image build, all green — which it never had before: GitHub Actions was switched off at the repository level, not merely unconfigured. The branch names are recorded in `README.md` ("Branches and CI"). Nothing is deployed yet (FA-12).
 
 ## 8. Tickets
 
