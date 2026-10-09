@@ -151,12 +151,14 @@ proxy's. Example queries: spec section 7.4.
 
 ## The database role
 
-Schema `auth` is meant to be owned by a role only this service connects as,
-`auth_svc`, with billing's role shut out of it, so that "billing never reads
-`auth.*`" is a rule the database enforces rather than a convention (FA-20,
-FA-22). An environment gets there by `docs/runbooks/auth-svc-role.md`, run after
-its cut-over; until then this service connects as the role billing uses. The
-runbook's record says which environments have been done.
+**Not separated.** "Billing never reads `auth.*`" is a convention; nothing in
+the database enforces it. FA-20 chose a dedicated `auth_svc` role owning schema
+`auth`, and `docs/runbooks/auth-svc-role.md` with `scripts/roles/` is the tooling
+for it, but it has been applied nowhere (FA-22, closed 2026-10-10). On Neon the
+roles the services connect as are members of `neon_superuser`, which reads and
+writes every table whatever a schema's privileges say, so shutting billing's role
+out of schema `auth` would refuse nothing. The runbook's record has the detail
+and what finishing it would take.
 
 ## Rotating the signing key
 
