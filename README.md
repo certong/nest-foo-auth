@@ -149,6 +149,15 @@ per session per portal. Never a password, PIN, token or typed email. Kept 365 da
 `npm run events:prune`. Set `TRUST_PROXY=1` behind a proxy or every IP is the
 proxy's. Example queries: spec section 7.4.
 
+## The database role
+
+Schema `auth` is meant to be owned by a role only this service connects as,
+`auth_svc`, with billing's role shut out of it, so that "billing never reads
+`auth.*`" is a rule the database enforces rather than a convention (FA-20,
+FA-22). An environment gets there by `docs/runbooks/auth-svc-role.md`, run after
+its cut-over; until then this service connects as the role billing uses. The
+runbook's record says which environments have been done.
+
 ## Rotating the signing key
 
 1. `SIGNING_KEY_ID=<new kid> npm run signing-key:generate`. Put the **public** JWK
