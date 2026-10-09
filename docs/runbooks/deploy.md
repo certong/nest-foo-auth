@@ -18,8 +18,8 @@ the bottom as it is done.
 | Variable | Development | UAT | Production |
 |---|---|---|---|
 | `APP_ENV` | `dev` | `uat` | `prod` |
-| `AUTH_ISSUER` | `https://api-auth-development.foocertong.com` | `https://auth-api-uat.foocertong.com` | `https://auth-api.foocertong.com` |
-| `AUTH_PORTAL_ORIGINS` | `https://billing-dev.foocertong.com=billing` | `https://billing-uat.foocertong.com=billing` | `https://billing.foocertong.com=billing` |
+| `AUTH_ISSUER` | `https://api-auth-development.foocertong.com` | `https://api-auth-uat.foocertong.com` | `https://auth-api.foocertong.com` |
+| `AUTH_PORTAL_ORIGINS` | `https://billing-development.foocertong.com=billing` | `https://billing-uat.foocertong.com=billing` | `https://billing.foocertong.com=billing` |
 | `AUTH_SIGNING_JWK` | its own key | its own key | its own key |
 | `DATABASE_URL` | Neon dev, **pooler** host, `…&schema=auth` | Neon UAT, the same | Neon production, the same |
 
@@ -89,7 +89,7 @@ that is wrong.
 ### 5. Smoke, without an account
 
 ```bash
-npm run smoke -- https://api-auth-development.foocertong.com https://billing-dev.foocertong.com
+npm run smoke -- https://api-auth-development.foocertong.com https://billing-development.foocertong.com
 ```
 
 Seven checks, no account and no database needed: health, the JWKS (ES256 public
@@ -117,7 +117,7 @@ Then, with an account that exists there:
 
 ```bash
 SMOKE_EMAIL=you@example.com SMOKE_PASSWORD=… \
-  npm run smoke -- https://api-auth-development.foocertong.com https://billing-dev.foocertong.com
+  npm run smoke -- https://api-auth-development.foocertong.com https://billing-development.foocertong.com
 ```
 
 Six more checks: sign in, the cookie's attributes (`HttpOnly`, `Secure`,
@@ -140,6 +140,6 @@ redeploying the previous image or deleting the service. Changing
 
 | Environment | Date | Image (commit) | `kid` | Step 5 | Step 6 |
 |---|---|---|---|---|---|
-| Development | | | | | |
-| UAT | | | | | |
+| Development | | | `2026-10-07` | 7/7 ok, 2026-10-09 | |
+| UAT | | | `uat-2026-10` | 7/7 ok, 2026-10-09 | |
 | Production | | | | | |
