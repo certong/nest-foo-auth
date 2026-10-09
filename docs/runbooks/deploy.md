@@ -6,7 +6,7 @@ steps with a different column of the table below.
 
 Deploying is spec 11.4 step 1 and nothing more: the service is up but **cannot
 serve logins yet**, because `account` and `account_pin` are still in billing's
-`public` schema. That is expected, and step 5 here passes without them. Moving
+`billing` schema. That is expected, and step 5 here passes without them. Moving
 the tables is the cut-over, [`auth-table-handover.md`](auth-table-handover.md)
 (FA-15 for UAT, FA-16 for production).
 
@@ -18,8 +18,8 @@ the bottom as it is done.
 | Variable | Development | UAT | Production |
 |---|---|---|---|
 | `APP_ENV` | `dev` | `uat` | `prod` |
-| `AUTH_ISSUER` | `https://auth-api-dev.foocertong.com` | `https://auth-api-uat.foocertong.com` | `https://auth-api.foocertong.com` |
-| `AUTH_PORTAL_ORIGINS` | `https://billing-dev.foocertong.com=billing` | `https://billing-uat.foocertong.com=billing` | `https://billing.foocertong.com=billing` |
+| `AUTH_ISSUER` | `https://api-auth-development.foocertong.com` | `https://api-auth-uat.foocertong.com` | `https://auth-api.foocertong.com` |
+| `AUTH_PORTAL_ORIGINS` | `https://billing-development.foocertong.com=billing` | `https://billing-uat.foocertong.com=billing` | `https://billing.foocertong.com=billing` |
 | `AUTH_SIGNING_JWK` | its own key | its own key | its own key |
 | `DATABASE_URL` | Neon dev, **pooler** host, `…&schema=auth` | Neon UAT, the same | Neon production, the same |
 
@@ -74,14 +74,14 @@ a `kid`.
 ### 3. Set the variables
 
 From the two tables above. `DATABASE_URL` is the pooler URL with `schema=auth`
-on the end; without `schema=auth` Prisma reads `public`, which is billing's.
+on the end; without `schema=auth` Prisma reads `public`, which is empty (billing's tables are in `billing`).
 
 ### 4. Point the hostname at it
 
 Add the custom domain on the host, create the DNS record it asks for, and wait
 for the certificate. Then deploy, and read the first line the service logs:
 
-    listening on <port> — APP_ENV=dev db=<pooler host> issuer=https://auth-api-dev.foocertong.com
+    listening on <port> — APP_ENV=dev db=<pooler host> issuer=https://api-auth-development.foocertong.com
 
 All three must be the environment you meant. A boot failure names the variable
 that is wrong.
@@ -89,7 +89,7 @@ that is wrong.
 ### 5. Smoke, without an account
 
 ```bash
-npm run smoke -- https://auth-api-dev.foocertong.com https://billing-dev.foocertong.com
+npm run smoke -- https://api-auth-development.foocertong.com https://billing-development.foocertong.com
 ```
 
 Seven checks, no account and no database needed: health, the JWKS (ES256 public
@@ -109,7 +109,7 @@ npx prisma migrate resolve --applied 0_init   # handover runbook, step 3
 npx prisma migrate deploy                     # step 4
 ```
 
-`0_init` refuses to run on a database whose tables are still in `public`, so
+`0_init` refuses to run on a database whose tables are still in billing's schema, so
 running `migrate deploy` too early stops with a message instead of doing harm.
 
 Existing accounts move with the tables, so there is normally nothing to seed.
@@ -117,7 +117,7 @@ Then, with an account that exists there:
 
 ```bash
 SMOKE_EMAIL=you@example.com SMOKE_PASSWORD=… \
-  npm run smoke -- https://auth-api-dev.foocertong.com https://billing-dev.foocertong.com
+  npm run smoke -- https://api-auth-development.foocertong.com https://billing-development.foocertong.com
 ```
 
 Six more checks: sign in, the cookie's attributes (`HttpOnly`, `Secure`,
@@ -140,6 +140,6 @@ redeploying the previous image or deleting the service. Changing
 
 | Environment | Date | Image (commit) | `kid` | Step 5 | Step 6 |
 |---|---|---|---|---|---|
-| Development | | | | | |
-| UAT | | | | | |
+| Development | | | `2026-10-07` | 7/7 ok, 2026-10-09 | |
+| UAT | | | `uat-2026-10` | 7/7 ok, 2026-10-09 | |
 | Production | | | | | |

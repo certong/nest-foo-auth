@@ -16,21 +16,30 @@
 -- Running this against a database that came from billing would fail halfway on
 -- "relation already exists". Fail first, and say what to do instead.
 --
--- Both schemas are checked, because a billing database reaches this file in two
+-- Both sides are checked, because a billing database reaches this file in two
 -- states. After the handover the tables are in auth, and the first branch sees
--- them. Before it they are still in public, and nothing here would collide: the
--- CREATE TABLE statements below are unqualified but run with schema=auth, so
--- 0_init would succeed and leave empty auth.account and auth.account_pin beside
--- the populated public ones, with every real login stranded in public and no
--- error to say so. The second branch is what makes that loud.
+-- them. Before it they are still in billing's schema, and nothing here would
+-- collide: the CREATE TABLE statements below are unqualified but run with
+-- schema=auth, so 0_init would succeed and leave empty auth.account and
+-- auth.account_pin beside the populated ones, with every real login stranded
+-- in billing's schema and no error to say so. The second branch is what makes
+-- that loud.
+--
+-- Billing's schema is `billing`. It was `public` until 2026-10-07, and a
+-- database built before then stays that way until it is renamed by hand
+-- (nest-foo-billing README, "Billing's schema"), so both names are looked in.
 DO $$
 BEGIN
   IF to_regclass('auth.account') IS NOT NULL OR to_regclass('auth.account_pin') IS NOT NULL THEN
     RAISE EXCEPTION 'auth.account already exists: this database came from nest-foo-billing. Do not run 0_init; mark it applied with `npx prisma migrate resolve --applied 0_init`.';
   END IF;
 
+  IF to_regclass('billing.account') IS NOT NULL OR to_regclass('billing.account_pin') IS NOT NULL THEN
+    RAISE EXCEPTION 'billing.account exists but auth.account does not: this database came from nest-foo-billing and the tables have not been moved yet. Running 0_init now would create empty tables in auth and leave every account in billing. Do the move first (docs/runbooks/auth-table-handover.md), then mark this applied with `npx prisma migrate resolve --applied 0_init`.';
+  END IF;
+
   IF to_regclass('public.account') IS NOT NULL OR to_regclass('public.account_pin') IS NOT NULL THEN
-    RAISE EXCEPTION 'public.account exists but auth.account does not: this database came from nest-foo-billing and the tables have not been moved yet. Running 0_init now would create empty tables in auth and leave every account in public. Do the move first (docs/runbooks/auth-table-handover.md), then mark this applied with `npx prisma migrate resolve --applied 0_init`.';
+    RAISE EXCEPTION 'public.account exists but auth.account does not: this database came from nest-foo-billing before its tables left public, and the handover has not run. Running 0_init now would create empty tables in auth and leave every account in public. Rename the schema to billing first (nest-foo-billing README, "Billing''s schema"), do the move (docs/runbooks/auth-table-handover.md), then mark this applied with `npx prisma migrate resolve --applied 0_init`.';
   END IF;
 END $$;
 

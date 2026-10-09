@@ -2,7 +2,7 @@
  * Smoke-tests a running nest-foo-auth from the outside, the way a portal and a
  * product backend see it (docs/runbooks/deploy.md, step 5).
  *
- *   npm run smoke -- https://auth-api-dev.foocertong.com https://billing-dev.foocertong.com
+ *   npm run smoke -- https://api-auth-development.foocertong.com https://billing-development.foocertong.com
  *   npm run smoke -- http://localhost:3001 http://localhost:5173
  *
  * First argument: this service's public URL, which must be its AUTH_ISSUER.
