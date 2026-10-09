@@ -10,7 +10,7 @@ enter every portal, no roles" decision, on request)
 - **Billing** is staff-only. Today that means Chi alone.
 - **Studio** is used by staff and by **clients**. A client sees only its own
   data there.
-- A client is a login that belongs to one billing client (`public.client.id`).
+- A client is a login that belongs to one billing client (`billing.client.id`).
 - Client business data (company, address, contacts, invoices) stays in billing.
   Auth stores only who can sign in, what type of login it is, and which client
   it belongs to. There is no `nest-foo-client` service for now.
@@ -22,7 +22,7 @@ Three columns on `auth.account`:
 | Column | Type | Meaning |
 |---|---|---|
 | `account_type` | `VARCHAR(16) NOT NULL DEFAULT 'staff'`, CHECK in (`staff`, `client`) | What kind of login this is. Readable at a glance in any query |
-| `client_id` | `INTEGER NULL` | The billing client this login belongs to (`public.client.id`). Set only for client logins |
+| `client_id` | `INTEGER NULL` | The billing client this login belongs to (`billing.client.id`). Set only for client logins |
 | `disabled_at` | `TIMESTAMP(3) NULL` | Set when the login is cut off (decision 7.2). Login and refresh refuse it |
 
 ```sql
@@ -40,7 +40,7 @@ CREATE INDEX account_client_id_idx ON auth.account (client_id);
 
 - The default `'staff'` keeps every existing row valid, so the migration needs
   no backfill.
-- `client_id` deliberately has **no foreign key** to `public.client`. Auth
+- `client_id` deliberately has **no foreign key** to `billing.client`. Auth
   never reads billing's schema (Decided in the main spec). The cost: deleting a
   billing client does not remove its logins. Section 7.2 covers that.
 - Several logins may share one `client_id` (two people at the same client

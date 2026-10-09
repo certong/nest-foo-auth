@@ -9,7 +9,7 @@ generator client {
 // generates ("auth"."account"), so nothing depends on search_path — which the
 // Neon pooler (PgBouncer, transaction mode) would not keep anyway — and it keeps
 // its migration table at auth._prisma_migrations, apart from billing's
-// public._prisma_migrations. That separation is this repo's migration history.
+// billing._prisma_migrations. That separation is this repo's migration history.
 //
 // Raw SQL does not get this for free: anything passed to $executeRaw or
 // $queryRaw must write `auth.` itself.
@@ -33,7 +33,7 @@ model Account {
 
   /// 'staff' or 'client'. A CHECK in migration SQL enforces the values.
   accountType  String   @default("staff") @map("account_type") @db.VarChar(16)
-  /// The billing client (public.client.id) a client login belongs to; null for
+  /// The billing client (billing.client.id) a client login belongs to; null for
   /// staff. Paired with accountType by a CHECK. No foreign key: this service
   /// never reads billing's schema.
   clientId     Int?     @map("client_id")

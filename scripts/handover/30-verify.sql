@@ -2,8 +2,8 @@
 -- Every check should print t. See the runbook, step 5.
 \set ON_ERROR_STOP on
 \pset footer off
-SELECT 'public.account gone'          AS check, to_regclass('public.account')     IS NULL AS ok
-UNION ALL SELECT 'public.account_pin gone',   to_regclass('public.account_pin') IS NULL
+SELECT 'billing.account gone'         AS check, to_regclass('billing.account')     IS NULL AS ok
+UNION ALL SELECT 'billing.account_pin gone',  to_regclass('billing.account_pin') IS NULL
 UNION ALL SELECT 'auth.account present',      to_regclass('auth.account')       IS NOT NULL
 UNION ALL SELECT 'auth.account_pin present',  to_regclass('auth.account_pin')   IS NOT NULL
 UNION ALL SELECT 'auth.auth_event present',   to_regclass('auth.auth_event')    IS NOT NULL
@@ -22,7 +22,7 @@ UNION ALL SELECT 'portal_entry partial unique index', EXISTS (SELECT 1 FROM pg_i
                                                  AND indexdef LIKE '%WHERE%portal_entry%')
 UNION ALL SELECT 'auth history: 0_init applied', EXISTS (SELECT 1 FROM auth._prisma_migrations
                                                WHERE migration_name = '0_init' AND finished_at IS NOT NULL)
-UNION ALL SELECT 'billing history untouched', NOT EXISTS (SELECT 1 FROM public._prisma_migrations
+UNION ALL SELECT 'billing history untouched', NOT EXISTS (SELECT 1 FROM billing._prisma_migrations
                                                WHERE migration_name = '0_init' OR migration_name LIKE '%add_auth_event');
 
 -- Same figures as the precheck printed; they must match.

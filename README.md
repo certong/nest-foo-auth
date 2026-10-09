@@ -12,6 +12,7 @@ client's data ([spec](docs/superpowers/specs/2026-10-03-account-types-design.md)
 
 Design: [`docs/superpowers/specs/2026-10-03-nest-foo-auth-design.md`](docs/superpowers/specs/2026-10-03-nest-foo-auth-design.md).
 Moving the tables over from billing: [`docs/runbooks/auth-table-handover.md`](docs/runbooks/auth-table-handover.md).
+Deploying it: [`docs/runbooks/deploy.md`](docs/runbooks/deploy.md).
 
 ## Endpoints
 
@@ -44,8 +45,8 @@ frontend is same-site with its auth host and the browser sends the host-only
 | Environment | Auth (this service) | Billing frontend |
 |---|---|---|
 | Production | `auth-api.foocertong.com` | `billing.foocertong.com` |
-| UAT | `auth-api-uat.foocertong.com` | `billing-uat.foocertong.com` |
-| Development | `auth-api-dev.foocertong.com` | `billing-dev.foocertong.com` |
+| UAT | `api-auth-uat.foocertong.com` | `billing-uat.foocertong.com` |
+| Development | `api-auth-development.foocertong.com` | `billing-development.foocertong.com` |
 
 What follows from that, shown for production (swap the hosts for UAT and
 development):
@@ -78,12 +79,17 @@ npm run start:dev               # http://localhost:3001
 
 ```bash
 npm test                        # no database needed
+npm run test:db                 # TEST_DATABASE_URL from .env
+npm run smoke -- http://localhost:3001 http://localhost:5173    # a running service, from outside
 TEST_DATABASE_URL=postgresql://foo:PASSWORD@localhost:5432/postgres npm run test:db
 ```
 
 `test:db` creates a throwaway database beside the one named, migrates it, runs
 the rules only Postgres can prove (one `portal_entry` per session per portal,
-the CHECKs, retention), and drops it.
+the CHECKs, retention), and drops it. `vitest.db.config.mts` loads `.env`, so
+`TEST_DATABASE_URL` can live there like every other setting; an inline value
+still overrides it, which is how CI passes it. Set nowhere, every case skips
+itself and the run goes green.
 
 ## Branches and CI
 
