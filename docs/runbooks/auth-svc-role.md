@@ -169,14 +169,34 @@ ran against a real database.
 | rollback restores the billing role as owner; the auth role is then refused | ✅ |
 | transfer again after a rollback | ✅ |
 
-Still open: the same on a Neon branch from dev, and the service signing in as
-the auth role through the pooler.
+### Development precheck (2026-10-10) — stopped here
+
+`00-precheck.sql` against Neon development, read-only. Nothing was changed.
+
+| | |
+|---|---|
+| `foo_development_app` | owns the database, billing's 8 tables, and schema `auth` with its 4 tables |
+| `dev_role_auth` | a second role, already there |
+| both | members of `neon_superuser`, and through it of `pg_read_all_data` and `pg_write_all_data` |
+| `auth_svc` | does not exist |
+
+The two checks this runbook warns about printed `f`. Either role reads and
+writes `auth.account` whatever the schema's privileges say, so the transfer
+would leave billing's role able to do exactly what it was meant to stop, and
+step 5's negative test would not be refused.
+
+FA-22 was closed on that, with the split applied nowhere. Finishing it means a
+plain role for billing as well as for this service, each made over SQL so that
+neither joins `neon_superuser`, each owning its own schema; the two existing
+roles would then be for people, not services. That moves billing's tables to a
+new owner and changes billing's connection strings, which is why it was not
+done as part of this story.
 
 ### Environments
 
 | Environment | Date | Billing role passes the precheck | Negative test error | Sign-in as `auth_svc` |
 |---|---|---|---|---|
 | Neon branch from dev | | | | |
-| Development | | | | |
+| Development | 2026-10-10 | no: member of `neon_superuser` | not run | not run |
 | UAT | | | | |
 | Production | | | | |
