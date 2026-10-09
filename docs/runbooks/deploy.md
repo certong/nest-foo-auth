@@ -10,8 +10,8 @@ serve logins yet**, because `account` and `account_pin` are still in billing's
 the tables is the cut-over, [`auth-table-handover.md`](auth-table-handover.md)
 (FA-15 for UAT, FA-16 for production).
 
-Nothing here has been run yet. Record each environment under "Deploy record" at
-the bottom as it is done.
+All three environments are deployed and cut over as of 2026-10-09; see "Deploy
+record" at the bottom. Record any later redeploy there as it is done.
 
 ## What each environment is set to
 
@@ -140,6 +140,14 @@ redeploying the previous image or deleting the service. Changing
 
 | Environment | Date | Image (commit) | `kid` | Step 5 | Step 6 |
 |---|---|---|---|---|---|
-| Development | 2026-10-09 | `5269555` | `2026-10-07` | 7/7 ok | |
-| UAT | 2026-10-09 | `22efe30` | `uat-2026-10` | 7/7 ok | |
-| Production | 2026-10-09 | `b33e45f` | `prod-2026-10` | 7/7 ok | |
+| Development | 2026-10-09 | `5269555` | `2026-10-07` | 7/7 ok | migrated; PIN sign-in by hand, 2026-10-09 |
+| UAT | 2026-10-09 | `22efe30` | `uat-2026-10` | 7/7 ok | migrated; PIN sign-in by hand, 2026-10-09 |
+| Production | 2026-10-09 | `b33e45f` | `prod-2026-10` | 7/7 ok | migrated; PIN sign-in by hand, 2026-10-09 |
+
+Step 6 above records what is known, which is less than the step asks for. The
+tables moved and `migrate deploy` ran in each environment, and the owner signed
+in with the PIN in a browser, refreshed, signed out and signed in again. Whether
+the scripted smoke (`npm run smoke` with `SMOKE_EMAIL`, the six further checks)
+was run was not recorded, so no count is given for it. Production's move was
+the cut-over itself: until it ran, `POST /api/auth/key` failed there with
+`The table auth.account_pin does not exist`.
