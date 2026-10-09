@@ -9,6 +9,12 @@ Read alongside `nest-foo-billing/docs/superpowers/specs/2026-08-30-backend-owned
 and the comments in `nest-foo-billing/src/auth/`. This spec does not repeat their
 reasoning; where code moves unchanged, the comments move with it.
 
+Revised 2026-10-08: billing's tables moved from `public` to a schema of their
+own, `billing` (nest-foo-billing README, "Billing's schema"). Where this spec
+says `public` for billing's schema, in sections 2, 9.1 and 11, read `billing`.
+The handover scripts, the runbook and the `0_init` guard name `billing`; the
+guard also still refuses a database whose tables are in `public`.
+
 Section 15 lists every decision **I** made that was not in the brief. Everything
 else marked **Decided** comes from the brief and is not re-opened here.
 
@@ -606,6 +612,11 @@ repo, and running anything against UAT or production.
 - **Commit convention.** Billing's plan says no `Co-Authored-By` trailer in that
   repo. Same rule here? And should I commit on a branch in this repo, or leave the
   work uncommitted for you?
+
+  **Answered 2026-10-07.** Not the same rule: work authored with Claude carries a
+  `Co-Authored-By` trailer, because the tool doing the authoring requires one. And
+  commit on a branch — every change lands by pull request now, since `development`,
+  `uat` and `main` are protected and need a green CI run to merge (FA-18).
 - **Throttle storage.** The login throttle is in-memory per instance (unchanged).
   If this service runs more than one instance, the effective limit is per
   instance. Fine for now; a Redis store is the fix if it scales out.

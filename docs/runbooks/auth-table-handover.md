@@ -1,6 +1,6 @@
 # Runbook: handing `account` and `account_pin` from billing to nest-foo-auth
 
-Moves billing's two login tables from schema `public` into schema `auth` of
+Moves billing's two login tables from schema `billing` into schema `auth` of
 `foo_platform_db`, without copying a row, and gives them to this repo's
 migration history. Spec: `docs/superpowers/specs/2026-10-03-nest-foo-auth-design.md`,
 section 11.
@@ -16,6 +16,12 @@ rehearsed there), billing's migration must be marked applied, not run:
 in nest-foo-billing. Its guard refuses to run on an already-moved database. If
 `deploy` was run anyway, mark the failed row `--rolled-back` first.
 
+Billing's schema was `public` until 2026-10-07, and the scripts here named it.
+They now name `billing`. A database built before that date still has billing's
+tables in `public` and is renamed first (nest-foo-billing README, "Billing's
+schema"); until then the precheck prints `f` and `0_init` refuses it by name.
+The rehearsal record below predates the rename, so it says `public`.
+
 ## Files
 
 | File | What it does | Writes? |
@@ -23,7 +29,7 @@ in nest-foo-billing. Its guard refuses to run on an already-moved database. If
 | `scripts/handover/00-precheck.sql` | confirms the starting state, prints counts and a digest of `account` | no |
 | `scripts/handover/10-move.sql` | `CREATE SCHEMA auth; ALTER TABLE … SET SCHEMA auth` ×2, one transaction, `lock_timeout 5s` | yes |
 | `scripts/handover/30-verify.sql` | confirms the end state, re-prints the same counts and digest, probes that the CHECKs and the partial unique index still refuse bad rows (inside a rolled-back transaction) | no |
-| `scripts/handover/90-rollback.sql` | puts the tables back in `public`, drops `auth_event` and `auth._prisma_migrations` | yes |
+| `scripts/handover/90-rollback.sql` | puts the tables back in `billing`, drops `auth_event` and `auth._prisma_migrations` | yes |
 | `scripts/handover/rehearse.sh` | runs 00 → 10 → resolve → deploy → 30 → drift, against the active `.env`; refuses unless `APP_ENV` is `local` or `dev` | yes |
 
 `psql` does not accept Prisma's `schema=auth` URL parameter. `rehearse.sh`
@@ -126,7 +132,7 @@ SELECT created_at, kind, method, portal, sid FROM auth.auth_event ORDER BY id DE
 Expect `login_success`, `portal_entry` (one per portal), `logout`, all with one
 `sid`.
 
-### Rollback — only while billing still expects its tables in `public`
+### Rollback — only while billing still expects to own the tables
 
 ```bash
 psql "$PSQL_URL" -X -f scripts/handover/90-rollback.sql

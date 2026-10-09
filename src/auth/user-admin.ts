@@ -4,11 +4,53 @@ import { AccountType, isAccountType } from './account-type';
 import { hashPassword } from './password';
 
 /**
- * Matches seed-admin.ts. This account is reachable from a public login route
- * and nothing limits what it can do once inside, so a short password here is
- * the whole attack surface.
+ * Shared by `user:add` and `seed:admin`. Both kinds of account are reachable
+ * from a public login route and nothing limits what one can do once inside, so a
+ * short password here is the whole attack surface.
  */
 const MIN_PASSWORD_LENGTH = 12;
+
+/**
+ * What `npm run seed:admin` does: sets a staff account's password, creating the
+ * account if it is not already there.
+ *
+ * Upserts, unlike addUser. There is no password reset flow, so re-running this
+ * with a new ADMIN_PASSWORD is how a password gets changed and how a lost one is
+ * recovered — which only works if the second run updates rather than refuses.
+ *
+ * Staff only. Resetting a client login's password from here would make this the
+ * way to hand someone else the administrator's script, and it would leave them a
+ * client besides — a client may enter studio only, so the reset would not even
+ * give them what it appeared to give them.
+ */
+export async function seedAdmin(
+  prisma: PrismaService,
+  email: string,
+  password: string,
+): Promise<{ email: string }> {
+  const normalised = email.trim().toLowerCase();
+
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    throw new Error(`ADMIN_PASSWORD must be at least ${MIN_PASSWORD_LENGTH} characters`);
+  }
+
+  // Read before the write, so a client account is refused with its own sentence
+  // instead of having its password quietly replaced.
+  const existing = await prisma.account.findUnique({ where: { email: normalised } });
+  if (existing !== null && existing.accountType !== 'staff') {
+    throw new Error(
+      `${normalised} is a ${existing.accountType} account; seed:admin only manages staff`,
+    );
+  }
+
+  const passwordHash = await hashPassword(password);
+  const user = await prisma.account.upsert({
+    where: { email: normalised },
+    create: { email: normalised, passwordHash, accountType: 'staff' },
+    update: { passwordHash },
+  });
+  return { email: user.email };
+}
 
 /**
  * Creates a login account.

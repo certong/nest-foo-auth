@@ -34,8 +34,15 @@ gains a `sid` and a portal; nothing else about its security logic moves.
 - Raw SQL always writes `auth.` explicitly.
 - Default test suite needs no database (`PrismaService` is stubbed). The DB
   suite (`npm run test:db`) runs only when `TEST_DATABASE_URL` is set.
-- Commits: feature branch `feat/standalone-auth-service`, no `Co-Authored-By`
-  trailer.
+- Commits: a feature branch off `development`, which is merged back by pull
+  request (FA-18). Work authored with Claude carries a `Co-Authored-By` trailer.
+
+  Amended 2026-10-07. This said "branch `feat/standalone-auth-service`, no
+  `Co-Authored-By` trailer". Both halves have stopped being true: that branch was
+  merged and deleted, and the trailer is required of the tool doing the authoring,
+  so the rule as written could not be followed. Task 14 below records the five
+  commits made under the old rule; those commits are unchanged and still in the
+  history, and are left as they were.
 
 ## Sandbox note (for whoever runs this plan from the cloud workspace)
 
@@ -134,8 +141,13 @@ export function verifyToken(t: string, keys: TokenKeys, expected: 'refresh'): Pr
 **Files:** `src/portal/portal.ts` (types, `parsePortalOrigins`),
 `src/portal/portal-origins.ts` (injectable built from `AUTH_PORTAL_ORIGINS`),
 `src/portal/portal.guard.ts`, `src/portal/no-portal.decorator.ts`,
-`src/portal/current-portal.decorator.ts`, `src/common/cors.ts` (allowlist from
-the map; methods `GET, POST, OPTIONS`), specs for each.
+`src/common/cors.ts` (allowlist from the map; methods `GET, POST, OPTIONS`),
+specs for each.
+
+No `current-portal.decorator.ts` was written (corrected 2026-10-07, FA-19): the
+handlers that need the portal already take `requestMeta(req)` for the auth_event
+row, and it reads `request.portal` — a decorator would have been a second way to
+read the same field.
 
 - [x] `parsePortalOrigins`: valid list; several origins → one portal; rejects
   empty, missing `=`, unknown portal, path, trailing slash, query, duplicate,
@@ -201,7 +213,11 @@ new `auth-events.spec.ts`.
 `src/app.module.ts`, `src/app-setup.ts`, `src/main.ts`, `test/create-test-app.ts`,
 `test/test-keys.ts`, ported `auth.e2e-spec.ts`, `auth-throttle.e2e-spec.ts`,
 `json-content-type.e2e-spec.ts`; new `jwks.e2e-spec.ts`, `portal.e2e-spec.ts`,
-`audience.e2e-spec.ts`, `contract.e2e-spec.ts`, `auth-events.e2e-spec.ts`.
+`contract.e2e-spec.ts`, `auth-events.e2e-spec.ts`.
+
+No separate `audience.e2e-spec.ts` was written (corrected 2026-10-07, FA-19):
+the audience cases below live in `test/contract.e2e-spec.ts`, beside the §8
+verifier contract they exist to protect.
 
 - [x] Ported suites pass with an `Origin` on every request.
 - [x] JWKS: 200 without origin, `Cache-Control: public, max-age=300`, no `d`,
@@ -226,9 +242,12 @@ new `auth-events.spec.ts`.
 
 ## Task 12 — DB suite
 
-**Files:** `vitest.db.config.mts`, `test/db/setup.ts` (creates a throwaway
-database from `TEST_DATABASE_URL`, applies both migrations, drops it after),
-`test/db/auth-event.int-spec.ts`.
+**Files:** `vitest.db.config.mts`, `test/db/throwaway-database.ts` (creates a
+throwaway database from `TEST_DATABASE_URL`, applies both migrations, drops it
+after), `test/db/auth-event.int-spec.ts`.
+
+Named `setup.ts` here when the plan was written (corrected 2026-10-07, FA-19);
+it is `throwaway-database.ts`, which says what it does rather than when it runs.
 
 - [x] Repeated `portal_entry` for one `(sid, portal)` leaves one row; a second
   portal adds one; other kinds are unaffected.

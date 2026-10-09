@@ -29,6 +29,7 @@
     "user:enable": "ts-node -P tsconfig.json scripts/user-disable.ts --enable",
     "signing-key:generate": "ts-node -P tsconfig.json scripts/generate-signing-key.ts",
     "events:prune": "ts-node -P tsconfig.json scripts/prune-events.ts",
+    "smoke": "node scripts/smoke.mjs",
     "test:db": "vitest run --config vitest.db.config.mts"
   },
   "dependencies": {
@@ -55,6 +56,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^22.20.1",
     "@types/supertest": "^7.2.1",
+    "dotenv": "^17.4.2",
     "prisma": "^6.19.3",
     "source-map-support": "^0.5.21",
     "supertest": "^7.2.2",

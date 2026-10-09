@@ -4,7 +4,10 @@
 -- the constraints, indexes (including the PG17+ named NOT NULLs), the two
 -- CHECKs and the account_pin -> account foreign key all move with the table
 -- because they belong to it, not to the schema. Neither table owns a sequence,
--- so nothing is left behind in public.
+-- so nothing is left behind in billing.
+--
+-- Billing's schema is `billing` (it was `public` until 2026-10-07). A database
+-- still on `public` is renamed first: nest-foo-billing README, "Billing's schema".
 --
 -- In UAT and production this exact SQL ships as a nest-foo-billing migration
 -- instead (spec section 11.1); this file is for rehearsal and for local/dev.
@@ -15,6 +18,6 @@
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 CREATE SCHEMA IF NOT EXISTS auth;
-ALTER TABLE public.account_pin SET SCHEMA auth;
-ALTER TABLE public.account     SET SCHEMA auth;
+ALTER TABLE billing.account_pin SET SCHEMA auth;
+ALTER TABLE billing.account     SET SCHEMA auth;
 COMMIT;
