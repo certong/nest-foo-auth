@@ -3,7 +3,7 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import request from 'supertest';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp } from './create-test-app';
-import { EMAIL, PASSWORD, fakePrisma } from './fake-prisma';
+import { EMAIL, PASSWORD, PIN, fakePrisma } from './fake-prisma';
 import { BILLING_ORIGIN, STUDIO_ORIGIN } from './test-keys';
 
 let app: INestApplication;
@@ -32,9 +32,18 @@ describe('the portal comes from the Origin header', () => {
   it.each([
     [BILLING_ORIGIN, 'billing'],
     [STUDIO_ORIGIN, 'studio'],
-  ])('a sign-in from %s gets a %s token', async (origin, portal) => {
-    const res = await login(origin).expect(200);
+  ])('a PIN sign-in from %s gets a %s token', async (origin, portal) => {
+    const res = await request(app.getHttpServer())
+      .post('/api/auth/pin')
+      .set('Origin', origin)
+      .send({ email: EMAIL, pin: PIN })
+      .expect(200);
     expect(audOf(res.body.accessToken)).toBe(portal);
+  });
+
+  it('a password sign-in from billing gets a billing token', async () => {
+    const res = await login(BILLING_ORIGIN).expect(200);
+    expect(audOf(res.body.accessToken)).toBe('billing');
   });
 
   it('refuses a request with no Origin, before the account is looked up', async () => {

@@ -22,8 +22,8 @@ anything else is a 403. Except where noted, mutating requests must send
 
 | | | Returns |
 |---|---|---|
-| `POST /api/auth/login` | `{ email, password }`, throttled 10/15 min/IP | `{ accessToken, user: { id, email, accountType, clientId? } }` + refresh cookie; 403 for a client at billing |
-| `POST /api/auth/key` | `{ key }` (six digits), throttled + per-door lockout | same as login |
+| `POST /api/auth/login` | `{ email, password }`, throttled 10/15 min/IP | `{ accessToken, user: { id, email, accountType, clientId? } }` + refresh cookie; 403 for a client at billing; 403 `Use PIN sign-in for this portal` at studio |
+| `POST /api/auth/pin` | `{ email, pin }` (six digits), same throttle; 5 wrong tries lock that email for 15 min (429 `retryAfter`) | same as login; 403 for a client at billing |
 | `POST /api/auth/refresh` | refresh cookie | `{ accessToken }` for the requesting portal; 403 for a client at billing, 401 once disabled |
 | `POST /api/auth/logout` | — | 204, cookie cleared (signs out of every portal) |
 | `GET /api/me` | `Authorization: Bearer <access token for this portal>` | `{ id, email, accountType, clientId? }` |
@@ -136,9 +136,16 @@ it exists to prevent.
 |---|---|
 | `npm run seed:admin` | create a staff account, or reset a staff password (there is no reset flow) |
 | `npm run user:add` | add an account; `USER_ACCOUNT_TYPE=client USER_CLIENT_ID=<billing client id>` for a client |
-| `npm run user:list` | list accounts with type, client, disabled, and the PIN holder |
+| `npm run user:list` | list accounts with type, client, disabled, and whether each has a PIN |
 | `npm run user:disable` / `user:enable` | cut a login off (its session ends within 15 minutes) or let it back |
-| `npm run key:set` | set, move or clear the six-digit PIN (staff only); also the unlock |
+| `npm run key:set` | set or replace one account's six-digit PIN (`USER_EMAIL`, `USER_PIN`); staff or client |
+| `npm run key:clear` | remove one account's PIN (`USER_EMAIL`) |
+
+Studio signs in with email + PIN only; billing takes the password or the PIN.
+Each account has its own PIN (`auth.account_pin`), so a new studio user needs
+`user:add` then `key:set`. The PIN lockout is per typed email and held in
+memory: it ends after 15 minutes, on a restart, or when a staff account signs in
+to billing with its password. `key:set` does not clear it.
 
 ## The login log
 

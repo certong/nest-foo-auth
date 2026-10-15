@@ -23,6 +23,7 @@
     "prisma:deploy": "prisma migrate deploy",
     "seed:admin": "ts-node -P tsconfig.json scripts/seed-admin.ts",
     "key:set": "ts-node -P tsconfig.json scripts/set-key.ts",
+    "key:clear": "ts-node -P tsconfig.json scripts/clear-key.ts",
     "user:add": "ts-node -P tsconfig.json scripts/user-add.ts",
     "user:list": "ts-node -P tsconfig.json scripts/user-list.ts",
     "user:disable": "ts-node -P tsconfig.json scripts/user-disable.ts",

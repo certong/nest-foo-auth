@@ -40,7 +40,7 @@ model Account {
   /// Set when the login is cut off. Login and refresh both refuse it.
   disabledAt   DateTime? @map("disabled_at")
 
-  /// Set only on the one account the PIN door opens; null on every other.
+  /// This account's PIN, if it has one (POST /auth/pin).
   pin          AccountPin?
 
   createdAt    DateTime @default(now()) @map("created_at")
@@ -53,44 +53,26 @@ model Account {
   @@map("account")
 }
 
-/// The PIN door (POST /auth/key). Exactly one row, and it always exists — the
-/// migration seeds it and validateKey upserts it, so the counters below are
-/// never absent.
+/// A PIN for one account (POST /auth/pin, FA-24). At most one per account; an
+/// account with no row has no PIN and cannot use PIN sign-in.
 ///
-/// A table of its own rather than columns on account because a six-digit PIN
-/// carries no identity: it cannot pick between accounts, so the door is a thing
-/// in its own right that *points at* one of them. That is also what lets the
-/// lockout counters exist when no PIN is configured — without them, "is a PIN
-/// set?" is answerable by watching whether the countdown advances.
+/// A table of its own rather than a column on account so a PIN can be added
+/// and removed (`npm run key:set` / `key:clear`) without touching the row that
+/// holds the password.
 ///
-/// Two CHECK constraints live on this table and are invisible to Prisma, which
-/// has no syntax for them: `id = 1`, and the paired-null rule below. `prisma db
-/// pull` would silently drop both, so they exist only in migration SQL — here in
-/// 0_init, and in billing's history before the table moved.
+/// The lockout counters that used to live here are gone: the lockout is now per
+/// typed email and in memory (src/auth/pin-lockout.ts), so unknown emails lock
+/// the same way as real ones.
 model AccountPin {
-  id             Int       @id @default(1)
-
-  /// Which account the PIN signs in as. Null together with keyHash and never
-  /// apart — a CHECK enforces the pairing, so a live credential can never
-  /// outlive the account it belonged to. Restrict, not SetNull: the database
-  /// refuses to delete the door-holder until the key is explicitly cleared.
-  ///
-  /// @unique is load-bearing for relation cardinality rather than for
-  /// uniqueness; without it the back-relation becomes a list.
-  accountId      String?   @unique @map("account_id") @db.Uuid
-  account        Account?  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  /// Cascade: deleting an account deletes its PIN. Nothing else refers to it.
+  accountId String   @id @map("account_id") @db.Uuid
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   /// The six-digit PIN, Argon2id-hashed exactly like passwordHash.
-  keyHash        String?   @map("key_hash") @db.VarChar(255)
+  pinHash   String   @map("pin_hash") @db.VarChar(255)
 
-  /// Failures since the last lockout or the last success. Reset to zero when a
-  /// lockout is served, so the lock expiring hands back a full budget.
-  failedAttempts Int       @default(0) @map("failed_attempts")
-  lockedUntil    DateTime? @map("locked_until")
-  /// Lockouts served, not attempts — this is the exponent the backoff doubles.
-  lockoutCount   Int       @default(0) @map("lockout_count")
-
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("account_pin")
 }

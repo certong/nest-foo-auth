@@ -1,5 +1,4 @@
 import { PrismaService } from '../prisma/prisma.service';
-import { ACCOUNT_PIN_ID } from './account-pin';
 import { AccountType, isAccountType } from './account-type';
 import { hashPassword } from './password';
 
@@ -119,7 +118,7 @@ function readAccountType(
  * disabled account, so an open session ends at its next refresh — within
  * fifteen minutes, the life of the access token it already holds.
  *
- * Not a delete: the row, its auth_event history and any PIN pairing stay, and
+ * Not a delete: the row, its auth_event history and its PIN stay, and
  * enabling it again restores the same account.
  */
 export async function setDisabled(
@@ -145,32 +144,28 @@ export interface UserSummary {
   accountType: string;
   clientId: number | null;
   disabled: boolean;
-  /** True for the one account POST /auth/key signs in as. */
-  holdsKey: boolean;
+  /** True when the account has a PIN, i.e. can use POST /auth/pin. */
+  hasPin: boolean;
 }
 
 /**
- * Every account, and which one the PIN opens.
+ * Every account, and whether it has a PIN.
  *
- * The endpoint will not tell you which that is — every rejection is uniform on
- * purpose — so with more than one account this is the only way to find out.
+ * The endpoint will not tell you — every rejection is uniform on purpose — so
+ * this is the way to find out.
  */
 export async function listUsers(prisma: PrismaService): Promise<UserSummary[]> {
-  const [users, door] = await Promise.all([
-    prisma.account.findMany({ orderBy: { createdAt: 'asc' } }),
-    prisma.accountPin.findUnique({
-      where: { id: ACCOUNT_PIN_ID },
-      include: { account: true },
-    }),
-  ]);
+  const users = await prisma.account.findMany({
+    orderBy: { createdAt: 'asc' },
+    include: { pin: { select: { accountId: true } } },
+  });
 
-  const holder = door?.keyHash != null ? (door.account?.id ?? null) : null;
   return users.map((user) => ({
     email: user.email,
     createdAt: user.createdAt,
     accountType: user.accountType,
     clientId: user.clientId,
     disabled: user.disabledAt !== null,
-    holdsKey: user.id === holder,
+    hasPin: user.pin !== null,
   }));
 }
