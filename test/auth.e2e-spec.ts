@@ -27,9 +27,6 @@ beforeAll(async () => {
                 : null,
             ),
         },
-        // Signing in clears any PIN lockout on this account's door; this suite
-        // has no door, so the update matches nothing.
-        accountPin: { updateMany: () => Promise.resolve({ count: 0 }) },
         authEvent: { createMany: () => Promise.resolve({ count: 0 }) },
       })
       // These cases exercise login behaviour, not the rate limit, and there are

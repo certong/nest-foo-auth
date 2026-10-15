@@ -1,12 +1,11 @@
 /**
  * Lists every login account: its type (staff, or client and which billing
- * client), whether it is disabled, and which one the PIN opens.
+ * client), whether it is disabled, and whether it has a PIN.
  *
  *   npm run user:list
  *
- * POST /auth/key will not tell you which account it signs in as — every
- * rejection it gives is deliberately uniform — so this is the only way to find
- * out.
+ * POST /auth/pin will not tell you whether an account has a PIN — every
+ * rejection it gives is deliberately uniform — so this is the way to find out.
  */
 import { NestFactory } from '@nestjs/core';
 import { ScriptsModule } from '../src/scripts.module';
@@ -29,11 +28,11 @@ async function main(): Promise<void> {
       const type = user.accountType === 'client' ? `client #${user.clientId}` : 'staff';
       console.log(
         `${user.email.padEnd(width)}  ${type.padEnd(14)}  created ${created}` +
-          `${user.disabled ? '  DISABLED' : ''}${user.holdsKey ? '  ← holds the PIN' : ''}`,
+          `  ${user.hasPin ? 'PIN set' : 'no PIN '}${user.disabled ? '  DISABLED' : ''}`,
       );
     }
-    if (!users.some((u) => u.holdsKey)) {
-      console.log('\nNo PIN is configured. `npm run key:set` designates an account.');
+    if (!users.some((u) => u.hasPin)) {
+      console.log('\nNo account has a PIN, so nobody can sign in to studio. `npm run key:set` gives one.');
     }
   } finally {
     await app.close();

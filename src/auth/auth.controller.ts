@@ -20,8 +20,8 @@ import { AuthenticatedUser, toAuthenticatedUser } from './authenticated-user';
 import { AuthService } from './auth.service';
 import { Public } from './public.decorator';
 import { LoginDto } from './dto/login.dto';
-import { KeyLoginDto } from './dto/key-login.dto';
-import { KeyThrottlerFilter } from './key-throttler.filter';
+import { PinLoginDto } from './dto/pin-login.dto';
+import { PinThrottlerFilter } from './pin-throttler.filter';
 import { LoginResponse, RefreshResponse } from './auth-response';
 import { SessionClaims } from './session-token';
 import {
@@ -74,31 +74,30 @@ export class AuthController {
   }
 
   /**
-   * The six-digit operator key (POST /auth/key).
+   * Email and six-digit PIN (POST /auth/pin, FA-24). The only way into studio;
+   * billing accepts it beside the password.
    *
    * A new credential, not a new session mechanism: this returns byte-for-byte
    * what /auth/login returns and sets the same cookie the same way, so
    * /auth/refresh, /me, the guard and the cookie's lifetime cannot tell which
-   * door was used. Anything else would make the key a second session system to
-   * maintain rather than a second way into the existing one.
+   * door was used.
    *
-   * The throttle stays on as a coarse per-IP ceiling, but the real control is
-   * the persisted per-operator lockout inside validateKey — a per-IP, in-memory
-   * limit that resets on deploy bounds a naive script and nothing else.
-   * KeyThrottlerFilter makes the two 429s read identically.
+   * Two limits: the per-IP `login` throttle shared with /auth/login, and the
+   * per-email lockout inside validatePin. PinThrottlerFilter makes their 429s
+   * read identically.
    */
   @Public()
   @UseGuards(ThrottlerGuard)
-  @UseFilters(KeyThrottlerFilter)
+  @UseFilters(PinThrottlerFilter)
   @HttpCode(HttpStatus.OK)
-  @Post('auth/key')
-  async keyLogin(
-    @Body() dto: KeyLoginDto,
+  @Post('auth/pin')
+  async pinLogin(
+    @Body() dto: PinLoginDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<LoginResponse> {
     const meta = requestMeta(req);
-    const claims = await this.authService.validateKey(dto.key, meta);
+    const claims = await this.authService.validatePin(dto.email, dto.pin, meta);
     return this.signedIn(claims, meta.portal, res);
   }
 

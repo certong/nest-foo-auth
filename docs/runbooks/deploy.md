@@ -39,7 +39,7 @@ Leave these unset on the host:
   Migrations run from a laptop (step 6 and the handover runbook).
 - `CORS_MAX_AGE`, `AUTH_EVENT_RETENTION_DAYS`: the defaults (600 seconds, 365
   days) are the intended values.
-- `ADMIN_*`, `USER_*`, `OPERATOR_*`, `TEST_DATABASE_URL`: read by scripts, never
+- `ADMIN_*`, `USER_*`, `TEST_DATABASE_URL`: read by scripts, never
   at runtime.
 
 Two rules that are easy to get wrong:

@@ -1,164 +1,130 @@
-import { clearAccountPin, accountPinHolder, setAccountPin } from './account-pin';
+import { clearAccountPin, setAccountPin } from './account-pin';
 import { verifyPassword } from './password';
 
-const KEY = '042719';
-const USER_ID = 'u1';
-const OTHER_ID = 'u2';
+const PIN = '042719';
 
-interface Door {
-  accountId: string | null;
-  keyHash: string | null;
-  failedAttempts: number;
-  lockedUntil: Date | null;
-  lockoutCount: number;
+interface PinRow {
+  accountId: string;
+  pinHash: string;
 }
 
-function fakePrisma(users: Array<{ id: string; email: string; accountType: string }>, door: Partial<Door> = {}) {
-  const row: Door = {
-    accountId: null,
-    keyHash: null,
-    failedAttempts: 0,
-    lockedUntil: null,
-    lockoutCount: 0,
-    ...door,
-  };
-  const withUser = () => ({ ...row, account: users.find((u) => u.id === row.accountId) ?? null });
-
+/** An account table and a real in-memory account_pin table, keyed by account. */
+function fakePrisma(users: Array<{ id: string; email: string; accountType: string }>, pins: PinRow[] = []) {
+  const table = new Map(pins.map((p) => [p.accountId, { ...p }]));
   return {
-    row,
+    table,
     prisma: {
       account: {
         findUnique: ({ where }: { where: { email: string } }) =>
           Promise.resolve(users.find((u) => u.email === where.email) ?? null),
       },
       accountPin: {
-        // The row always exists in practice; upsert's update branch is what runs.
-        upsert: ({ update }: { update: Partial<Door> }) => {
-          Object.assign(row, update);
-          return Promise.resolve(withUser());
+        upsert: ({ where, create, update }: { where: { accountId: string }; create: PinRow; update: Partial<PinRow> }) => {
+          const existing = table.get(where.accountId);
+          const row = existing === undefined ? { ...create } : Object.assign(existing, update);
+          table.set(where.accountId, row);
+          return Promise.resolve(row);
         },
-        findUnique: () => Promise.resolve(withUser()),
+        deleteMany: ({ where }: { where: { accountId: string } }) =>
+          Promise.resolve({ count: table.delete(where.accountId) ? 1 : 0 }),
       },
     },
   };
 }
 
-const ADMIN = { id: USER_ID, email: 'admin@example.com', accountType: 'staff' };
+const ADMIN = { id: 'u1', email: 'admin@example.com', accountType: 'staff' };
+const SECOND = { id: 'u2', email: 'second@example.com', accountType: 'staff' };
 const CLIENT = { id: 'u9', email: 'owner@client.example', accountType: 'client' };
 
 describe('setAccountPin', () => {
   it('stores an Argon2 hash, never the digits', async () => {
-    const { prisma, row } = fakePrisma([ADMIN]);
-    await setAccountPin(prisma as never, 'admin@example.com', KEY);
+    const { prisma, table } = fakePrisma([ADMIN]);
+    await setAccountPin(prisma as never, 'admin@example.com', PIN);
 
-    expect(row.keyHash).not.toBe(KEY);
-    expect(row.keyHash).toMatch(/^\$argon2/);
-    await expect(verifyPassword(row.keyHash!, KEY)).resolves.toBe(true);
+    const { pinHash } = table.get(ADMIN.id)!;
+    expect(pinHash).not.toBe(PIN);
+    expect(pinHash).toMatch(/^\$argon2/);
+    await expect(verifyPassword(pinHash, PIN)).resolves.toBe(true);
   });
 
-  it('points the door at the named account', async () => {
-    const { prisma, row } = fakePrisma([ADMIN]);
-    await setAccountPin(prisma as never, 'admin@example.com', KEY);
+  it('gives each account its own PIN', async () => {
+    const { prisma, table } = fakePrisma([ADMIN, SECOND]);
+    await setAccountPin(prisma as never, ADMIN.email, PIN);
+    await setAccountPin(prisma as never, SECOND.email, '999888');
 
-    expect(row.accountId).toBe(USER_ID);
+    await expect(verifyPassword(table.get(ADMIN.id)!.pinHash, PIN)).resolves.toBe(true);
+    await expect(verifyPassword(table.get(SECOND.id)!.pinHash, '999888')).resolves.toBe(true);
   });
 
-  it('writes the key and the account together', async () => {
-    // account_pin_pairing rejects one without the other, so a write that set
-    // only the hash would fail at the database rather than here.
-    const { prisma, row } = fakePrisma([ADMIN]);
-    await setAccountPin(prisma as never, 'admin@example.com', KEY);
+  it('replaces an account’s existing PIN', async () => {
+    const { prisma, table } = fakePrisma([ADMIN], [{ accountId: ADMIN.id, pinHash: 'old' }]);
+    await setAccountPin(prisma as never, ADMIN.email, '999888');
 
-    expect(row.keyHash === null).toBe(row.accountId === null);
+    expect(table.size).toBe(1);
+    await expect(verifyPassword(table.get(ADMIN.id)!.pinHash, '999888')).resolves.toBe(true);
   });
 
-  it('moves the door from one account to another', async () => {
-    // With several accounts this is how the PIN is handed over.
-    const { prisma, row } = fakePrisma(
-      [ADMIN, { id: OTHER_ID, email: 'second@example.com', accountType: 'staff' }],
-      { accountId: USER_ID, keyHash: 'old' },
-    );
-    await setAccountPin(prisma as never, 'second@example.com', '999888');
+  it('gives a PIN to a client account too, since studio is PIN-only', async () => {
+    const { prisma, table } = fakePrisma([CLIENT]);
+    await setAccountPin(prisma as never, CLIENT.email, PIN);
 
-    expect(row.accountId).toBe(OTHER_ID);
-    await expect(verifyPassword(row.keyHash!, '999888')).resolves.toBe(true);
+    expect(table.has(CLIENT.id)).toBe(true);
   });
 
-  it('clears the lockout, which is what makes this a recovery path', async () => {
-    const { prisma, row } = fakePrisma([ADMIN], {
-      failedAttempts: 5,
-      lockoutCount: 9,
-      lockedUntil: new Date(Date.now() + 3_600_000),
+  it('finds the account however the email was typed', async () => {
+    const { prisma, table } = fakePrisma([ADMIN]);
+    await expect(setAccountPin(prisma as never, '  Admin@Example.com ', PIN)).resolves.toEqual({
+      email: ADMIN.email,
     });
-    await setAccountPin(prisma as never, 'admin@example.com', KEY);
-
-    expect(row.failedAttempts).toBe(0);
-    expect(row.lockoutCount).toBe(0);
-    expect(row.lockedUntil).toBeNull();
+    expect(table.has(ADMIN.id)).toBe(true);
   });
 
-  it('refuses a key that is not exactly six digits', async () => {
-    const { prisma, row } = fakePrisma([ADMIN]);
+  it('refuses a PIN that is not exactly six digits', async () => {
+    const { prisma, table } = fakePrisma([ADMIN]);
 
     for (const bad of ['12345', '1234567', 'abcdef', '', '04271a']) {
-      await expect(setAccountPin(prisma as never, 'admin@example.com', bad)).rejects.toThrow(
-        /six digits/,
-      );
+      await expect(setAccountPin(prisma as never, ADMIN.email, bad)).rejects.toThrow(/six digits/);
     }
-    expect(row.keyHash).toBeNull();
+    expect(table.size).toBe(0);
   });
 
   it('refuses an email with no account rather than creating one', async () => {
-    // Unlike seed:admin this must not upsert: a mistyped address would hand the
+    // Unlike seed:admin this must not upsert: a mistyped address would hand a
     // PIN to a login nobody meant to exist.
-    const { prisma, row } = fakePrisma([ADMIN]);
+    const { prisma, table } = fakePrisma([ADMIN]);
 
-    await expect(setAccountPin(prisma as never, 'ghost@example.com', KEY)).rejects.toThrow(
-      /no account/i,
-    );
-    expect(row.accountId).toBeNull();
-  });
-});
-
-describe('setAccountPin and account types', () => {
-  it('refuses to give the PIN to a client account', async () => {
-    // Whoever holds the PIN can open billing. A client never should.
-    const { prisma, row } = fakePrisma([ADMIN, CLIENT]);
-    await expect(setAccountPin(prisma as never, CLIENT.email, KEY)).rejects.toThrow(/only be held by staff/);
-    expect(row.accountId).toBeNull();
-    expect(row.keyHash).toBeNull();
+    await expect(setAccountPin(prisma as never, 'ghost@example.com', PIN)).rejects.toThrow(/no account/i);
+    expect(table.size).toBe(0);
   });
 });
 
 describe('clearAccountPin', () => {
-  it('nulls the key and the account together, and drops the lockout', async () => {
-    // accountId has to go too: the pairing CHECK requires it, and leaving the
-    // account referenced would keep the database refusing to delete it.
-    const { prisma, row } = fakePrisma([ADMIN], {
-      accountId: USER_ID,
-      keyHash: 'whatever',
-      lockoutCount: 3,
-      lockedUntil: new Date(),
+  it('removes only the named account’s PIN', async () => {
+    const { prisma, table } = fakePrisma(
+      [ADMIN, SECOND],
+      [
+        { accountId: ADMIN.id, pinHash: 'a' },
+        { accountId: SECOND.id, pinHash: 'b' },
+      ],
+    );
+
+    await expect(clearAccountPin(prisma as never, ADMIN.email)).resolves.toEqual({
+      email: ADMIN.email,
+      removed: true,
     });
-    await clearAccountPin(prisma as never);
-
-    expect(row.keyHash).toBeNull();
-    expect(row.accountId).toBeNull();
-    expect(row.lockoutCount).toBe(0);
-    expect(row.lockedUntil).toBeNull();
-  });
-});
-
-describe('accountPinHolder', () => {
-  it('names the account the PIN opens', async () => {
-    const { prisma } = fakePrisma([ADMIN], { accountId: USER_ID, keyHash: 'set' });
-
-    await expect(accountPinHolder(prisma as never)).resolves.toBe('admin@example.com');
+    expect([...table.keys()]).toEqual([SECOND.id]);
   });
 
-  it('is null when no key is configured', async () => {
+  it('says so when there was no PIN to remove', async () => {
     const { prisma } = fakePrisma([ADMIN]);
+    await expect(clearAccountPin(prisma as never, ADMIN.email)).resolves.toEqual({
+      email: ADMIN.email,
+      removed: false,
+    });
+  });
 
-    await expect(accountPinHolder(prisma as never)).resolves.toBeNull();
+  it('refuses an email with no account', async () => {
+    const { prisma } = fakePrisma([ADMIN]);
+    await expect(clearAccountPin(prisma as never, 'ghost@example.com')).rejects.toThrow(/no account/i);
   });
 });

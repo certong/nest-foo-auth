@@ -1,19 +1,12 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { AuthEventInput, RequestMeta, fromMeta } from '../events/auth-event';
 import { AuthEventService } from '../events/auth-event.service';
 import { Portal } from '../portal/portal';
 import { PrismaService } from '../prisma/prisma.service';
 import { burnVerifyTime, verifyPassword } from './password';
-import { ACCOUNT_PIN_ID } from './account-pin';
 import { AccountType, canEnter, isAccountType, portalDenied } from './account-type';
-import {
-  KEY_MAX_ATTEMPTS,
-  keyLocked,
-  keyRejected,
-  lockoutSeconds,
-  remainingSeconds,
-} from './key-lockout';
+import { PinLockout, pinLocked, pinRejected } from './pin-lockout';
 import { SessionClaims, signAccessToken, signRefreshToken, verifyToken } from './session-token';
 import { TOKEN_KEYS, TokenKeys } from './token-keys';
 
@@ -23,7 +16,13 @@ import { TOKEN_KEYS, TokenKeys } from './token-keys';
  */
 export const INVALID_CREDENTIALS = 'Invalid email or password';
 
-export { KEY_LOCKED, KEY_REJECTED } from './key-lockout';
+/**
+ * Studio takes the PIN only (FA-24). 403, not 401: the frontend reads 401 as
+ * "wrong password", and nothing typed was wrong — only the way in.
+ */
+export const USE_PIN_SIGN_IN = 'Use PIN sign-in for this portal';
+
+export { PIN_LOCKED, PIN_REJECTED } from './pin-lockout';
 
 /** The columns of an account row a session is built from. */
 interface AccountRow {
@@ -72,9 +71,17 @@ export class AuthService {
     private readonly prisma: PrismaService,
     @Inject(TOKEN_KEYS) private readonly keys: TokenKeys,
     private readonly events: AuthEventService,
+    private readonly pinLockout: PinLockout,
   ) {}
 
   async validateCredentials(email: string, password: string, meta: RequestMeta): Promise<SessionClaims> {
+    // Studio is PIN-only (FA-24). Refused before the lookup and the verify, so
+    // this answer is the same for every email and says nothing about any of
+    // them. Not logged: nothing was checked.
+    if (meta.portal === 'studio') {
+      throw new ForbiddenException(USE_PIN_SIGN_IN);
+    }
+
     const user = await this.prisma.account.findUnique({ where: { email } });
 
     if (user === null) {
@@ -101,72 +108,67 @@ export class AuthService {
     // verifying would answer "this email is a client" to anyone who asks.
     await this.assertPortal(account, 'password', null, meta);
 
-    // Signing in with the password clears any PIN lockout on this account's
-    // door. The lockout exists to stop an *unauthenticated* caller guessing six
-    // digits; proving the password is not that. Without this, the only way out
-    // of a long backoff is shell access to a box that can reach the database.
-    //
-    // updateMany rather than update: it is a no-op when this account does not
-    // hold the door, where update would throw on a row that does not match.
-    await this.prisma.accountPin.updateMany({
-      where: { id: ACCOUNT_PIN_ID, accountId: user.id },
-      data: { failedAttempts: 0, lockoutCount: 0, lockedUntil: null },
-    });
+    // Signing in with the password clears any PIN lockout on this email. The
+    // lockout exists to stop an *unauthenticated* caller guessing six digits;
+    // proving the password is not that.
+    this.pinLockout.clear(email);
 
     return this.startSession(account, 'password', meta);
   }
 
   /**
-   * The six-digit operator key (POST /auth/key).
+   * Email and six-digit PIN (POST /auth/pin, FA-24). Each account holds its own
+   * PIN (auth.account_pin), created by `npm run key:set`.
    *
-   * A PIN carries no identity — that is its whole premise — so it cannot pick
-   * between accounts. The door is therefore a row of its own that *points at*
-   * one account, and any number of accounts may exist alongside it. Everyone
-   * signs in with a password; exactly one of them also has this.
+   * An unknown email, an account with no PIN, a disabled account and a wrong
+   * PIN all cost one Argon2 verify, count against the typed email's lockout,
+   * and get the same 401 body. Any difference between them would tell a caller
+   * which emails have accounts.
    *
-   * The lockout, not the key, is the security control: 10^6 combinations falls
-   * to a script in minutes, five attempts per exponential backoff does not.
+   * The lockout, not the PIN, is the security control: 10^6 combinations falls
+   * to a script in minutes, five tries per fifteen minutes does not.
    */
-  async validateKey(key: string, meta: RequestMeta): Promise<SessionClaims> {
-    // upsert rather than findUnique, so the counters are never absent. A
-    // rejection that cannot report attemptsRemaining is a shorter body than one
-    // that can, and that difference is readable on the first request — see
-    // keyRejected in key-lockout.ts.
-    const door = await this.prisma.accountPin.upsert({
-      where: { id: ACCOUNT_PIN_ID },
-      create: { id: ACCOUNT_PIN_ID },
-      update: {},
-      include: { account: true },
-    });
-
-    const now = new Date();
-    if (door.lockedUntil !== null) {
-      const retryAfter = remainingSeconds(door.lockedUntil, now);
-      // Before the key is verified, so a locked operator cannot buy their way
-      // back in early with a correct guess and a locked attacker learns nothing
-      // from one. Not logged: nothing was verified, and the lockout that caused
-      // it already wrote key_locked.
-      if (retryAfter > 0) {
-        throw keyLocked(retryAfter);
-      }
+  async validatePin(email: string, pin: string, meta: RequestMeta): Promise<SessionClaims> {
+    const attempt = this.pinLockout.take(email);
+    if (attempt.locked) {
+      // Before the PIN is verified, so a locked caller cannot buy their way back
+      // in early with a correct guess and learns nothing from one. Not logged:
+      // nothing was verified, and the attempt that started the lock already
+      // wrote key_locked.
+      throw pinLocked(attempt.retryAfter);
     }
 
-    const operator = await this.resolveOperator(door, key);
-    if (operator === null) {
-      throw await this.recordKeyFailure(door, now, meta);
+    const user = await this.prisma.account.findUnique({ where: { email }, include: { pin: true } });
+    let account: SessionAccount | null = null;
+    if (user === null || user.pin === null) {
+      await burnVerifyTime(pin);
+    } else if (await verifyPassword(user.pin.pinHash, pin)) {
+      // A disabled account is a PIN that opens nothing: verified, counted and
+      // locked exactly like a wrong one.
+      account = sessionAccount(user);
     }
 
-    // key:set refuses to give the PIN to a client, so this only bites if the
-    // database was edited by hand. Checked anyway: the rule lives in one table
-    // and every door goes through it.
-    await this.assertPortal(operator, 'pin', null, meta);
+    if (account === null) {
+      // The account is named when there is one — the log is internal, and which
+      // account was being guessed at is the useful fact. Never the typed email.
+      await this.log([
+        {
+          kind: attempt.locks ? 'key_locked' : 'key_failed',
+          method: 'pin',
+          accountId: user?.id ?? null,
+          ...fromMeta(meta),
+        },
+      ]);
+      // Still a 401 when this attempt started the lock: it was a wrong PIN. The
+      // 429 belongs to the next request, the first one the lock refuses.
+      throw pinRejected(attempt.attemptsRemaining);
+    }
 
-    await this.prisma.accountPin.update({
-      where: { id: ACCOUNT_PIN_ID },
-      data: { failedAttempts: 0, lockoutCount: 0, lockedUntil: null },
-    });
-
-    return this.startSession(operator, 'pin', meta);
+    // The PIN was right, so the attempt taken above is given back — before the
+    // portal check, which refuses a right PIN rather than a wrong one.
+    this.pinLockout.clear(email);
+    await this.assertPortal(account, 'pin', null, meta);
+    return this.startSession(account, 'pin', meta);
   }
 
   /**
@@ -189,33 +191,6 @@ export class AuthService {
   }
 
   /**
-   * The account this key opens, or null if it opens nothing.
-   *
-   * A door with no key configured spends the same Argon2 time as a wrong one
-   * and then fails, so it walks the identical counting and lockout path.
-   * Returning early would make "is a PIN configured?" answerable with a
-   * stopwatch, and skipping the counters would make it answerable by watching
-   * the countdown stand still.
-   *
-   * `account` null is unreachable while the account_pin_pairing CHECK holds —
-   * the key and the account it opens are written together or not at all — but
-   * it is treated as "no key" rather than asserted away, so a corrupted row
-   * fails closed instead of 500ing.
-   */
-  private async resolveOperator(
-    door: { keyHash: string | null; account: AccountRow | null },
-    key: string,
-  ): Promise<SessionAccount | null> {
-    if (door.keyHash === null || door.account === null) {
-      await burnVerifyTime(key);
-      return null;
-    }
-    // A disabled holder is a door that opens nothing — verified, counted and
-    // locked exactly like a wrong key, so the countdown cannot reveal it.
-    return (await verifyPassword(door.keyHash, key)) ? sessionAccount(door.account) : null;
-  }
-
-  /**
    * Refuses, with 403 and a portal_denied row, an account type the request's
    * portal does not admit (account-type.ts). Only ever called once the
    * credential has been verified.
@@ -231,92 +206,6 @@ export class AuthService {
     }
     await this.log([{ kind: 'portal_denied', method, accountId: account.id, sid, ...fromMeta(meta) }]);
     throw portalDenied();
-  }
-
-  /**
-   * Counts the failure, locking if it was the last attempt, logs it, and
-   * returns the exception to throw.
-   *
-   * Compare-and-swap rather than a bare increment. The bare version read
-   * lockout_count, computed a duration from it, and wrote — so two fifth
-   * failures arriving together both read zero, both wrote a sixty-second lock,
-   * and advanced the exponent twice for one lockout actually served. Here the
-   * update only applies if the row still holds the values this request read, so
-   * exactly one concurrent writer wins and the loser re-reads instead of
-   * stacking a second write on top.
-   *
-   * Not a transaction around read-then-write: that would hold a lock on one
-   * globally hot row across an Argon2 verify, serialising every PIN attempt in
-   * the deployment and making this endpoint trivial to stall.
-   *
-   * What this does NOT fix is attempt amplification — the lock check and the
-   * verify both happen before any write, so N simultaneous requests still get N
-   * guesses against a budget of five. Bounding that needs the per-IP throttle in
-   * auth.module.ts, or a lock taken before the verify, which is the serialising
-   * cure above.
-   *
-   * The event is key_locked only for the request whose write actually started
-   * the lockout; a CAS loser cannot know whether it would have, so it records
-   * key_failed. `accountId` is the door holder (null when no key is set) — the
-   * log is internal, and which account was being guessed at is the useful fact.
-   */
-  private async recordKeyFailure(
-    seen: { failedAttempts: number; lockoutCount: number; accountId: string | null },
-    now: Date,
-    meta: RequestMeta,
-  ): Promise<Error> {
-    const attempts = seen.failedAttempts + 1;
-    const locks = attempts >= KEY_MAX_ATTEMPTS;
-
-    const { count } = await this.prisma.accountPin.updateMany({
-      // The read values are the guard: if anything moved underneath us, this
-      // matches nothing and we fall through to the re-read below.
-      where: {
-        id: ACCOUNT_PIN_ID,
-        failedAttempts: seen.failedAttempts,
-        lockoutCount: seen.lockoutCount,
-      },
-      data: locks
-        ? {
-            // Zeroed, not left at the maximum: when the lock expires the
-            // operator needs a full budget, or their first typo re-locks them
-            // immediately on the next rung of the schedule.
-            failedAttempts: 0,
-            lockoutCount: seen.lockoutCount + 1,
-            lockedUntil: new Date(now.getTime() + lockoutSeconds(seen.lockoutCount) * 1000),
-          }
-        : { failedAttempts: attempts },
-    });
-
-    const event: AuthEventInput = {
-      kind: count > 0 && locks ? 'key_locked' : 'key_failed',
-      method: 'pin',
-      accountId: seen.accountId ?? null,
-      ...fromMeta(meta),
-    };
-    await this.log([event]);
-
-    if (count === 0) {
-      // A concurrent request counted this attempt already. Report what the row
-      // actually says rather than what this request expected, so two racing
-      // failures cannot both claim the same remaining count.
-      return keyRejected(await this.attemptsRemaining());
-    }
-
-    // Still a 401: this request was a wrong key. The 429 belongs to the *next*
-    // request, which is the first one the lock actually refuses.
-    return keyRejected(locks ? 0 : KEY_MAX_ATTEMPTS - attempts);
-  }
-
-  private async attemptsRemaining(): Promise<number> {
-    const door = await this.prisma.accountPin.findUnique({
-      where: { id: ACCOUNT_PIN_ID },
-      select: { failedAttempts: true, lockedUntil: true },
-    });
-    if (door === null || door.lockedUntil !== null) {
-      return 0;
-    }
-    return Math.max(0, KEY_MAX_ATTEMPTS - door.failedAttempts);
   }
 
   /**

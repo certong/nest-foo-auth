@@ -35,6 +35,27 @@ describe('login throttling', () => {
     await attempt().expect(429);
   });
 
+  it('throttles PIN sign-in the same way, with a 429 shaped like the lockout’s', async () => {
+    // Distinct emails each time, so the per-email lockout never fires and the
+    // 429 can only be the throttle's.
+    const attempt = (i: number) =>
+      request(app.getHttpServer())
+        .post('/api/auth/pin')
+        .set('Origin', BILLING_ORIGIN)
+        .send({ email: `nobody${i}@example.com`, pin: '000000' });
+
+    for (let i = 0; i < 10; i += 1) {
+      await attempt(i).expect(401);
+    }
+    const throttled = await attempt(10).expect(429);
+    expect(throttled.body).toEqual({
+      statusCode: 429,
+      error: 'Too Many Requests',
+      message: 'Too many attempts',
+      retryAfter: expect.any(Number),
+    });
+  });
+
   it('leaves other routes unthrottled', async () => {
     // The rest of the API is authenticated; only the unauthenticated login route
     // is worth a rate limit, and a global one would throttle normal use.

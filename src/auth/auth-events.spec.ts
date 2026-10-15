@@ -6,6 +6,7 @@ import { AuthEventService } from '../events/auth-event.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from './auth.service';
 import { hashPassword } from './password';
+import { PinLockout } from './pin-lockout';
 import { TOKEN_KEYS } from './token-keys';
 
 /**
@@ -16,30 +17,14 @@ import { TOKEN_KEYS } from './token-keys';
 const USER_ID = 'a3f1c2d4-0000-4000-8000-000000000001';
 const EMAIL = 'admin@example.com';
 const PASSWORD = 's3cret-password';
-const KEY = '042719';
+const PIN = '042719';
 const META: RequestMeta = { portal: 'billing', ip: '203.0.113.7', userAgent: 'vitest' };
 const STUDIO: RequestMeta = { ...META, portal: 'studio' };
 
-interface Door {
-  accountId: string | null;
-  keyHash: string | null;
-  failedAttempts: number;
-  lockedUntil: Date | null;
-  lockoutCount: number;
-}
-
-async function build(options: { door?: Partial<Door>; recorder?: 'ok' | 'throws'; holder?: Record<string, unknown> } = {}) {
+async function build(options: { recorder?: 'ok' | 'throws'; holder?: Record<string, unknown> } = {}) {
   const passwordHash = await hashPassword(PASSWORD);
-  const user = { id: USER_ID, email: EMAIL, passwordHash, accountType: 'staff', clientId: null, disabledAt: null, ...options.holder };
-  const door: Door = {
-    accountId: USER_ID,
-    keyHash: await hashPassword(KEY),
-    failedAttempts: 0,
-    lockedUntil: null,
-    lockoutCount: 0,
-    ...options.door,
-  };
-  const withUser = () => ({ ...door, account: door.accountId === USER_ID ? user : null });
+  const pin = { accountId: USER_ID, pinHash: await hashPassword(PIN) };
+  const user = { id: USER_ID, email: EMAIL, passwordHash, accountType: 'staff', clientId: null, disabledAt: null, pin, ...options.holder };
 
   const recorded: AuthEventInput[][] = [];
   const record = vi.fn((events: AuthEventInput[]) => {
@@ -54,31 +39,19 @@ async function build(options: { door?: Partial<Door>; recorder?: 'ok' | 'throws'
       findUnique: ({ where }: { where: { email?: string; id?: string } }) =>
         Promise.resolve(where.email === EMAIL || where.id === USER_ID ? user : null),
     },
-    accountPin: {
-      upsert: () => Promise.resolve(withUser()),
-      findUnique: () => Promise.resolve(withUser()),
-      update: ({ data }: { data: Partial<Door> }) => Promise.resolve(Object.assign(door, data)),
-      updateMany: ({ where, data }: { where: Record<string, unknown>; data: Partial<Door> }) => {
-        const matches = (['failedAttempts', 'lockoutCount', 'accountId'] as const).every(
-          (f) => where[f] === undefined || where[f] === door[f],
-        );
-        if (!matches) return Promise.resolve({ count: 0 });
-        Object.assign(door, data);
-        return Promise.resolve({ count: 1 });
-      },
-    },
   };
 
   const moduleRef = await Test.createTestingModule({
     providers: [
       AuthService,
+      PinLockout,
       { provide: PrismaService, useValue: prisma },
       { provide: TOKEN_KEYS, useValue: await testKeys() },
       { provide: AuthEventService, useValue: { record } },
     ],
   }).compile();
 
-  return { service: moduleRef.get(AuthService), recorded, record, door };
+  return { service: moduleRef.get(AuthService), recorded, record };
 }
 
 async function failureOf(run: Promise<unknown>): Promise<{ status: number; body: unknown }> {
@@ -114,8 +87,15 @@ describe('password sign-in', () => {
 
   it('records the portal the sign-in came from', async () => {
     const { service, recorded } = await build();
-    await service.validateCredentials(EMAIL, PASSWORD, STUDIO);
+    await service.validatePin(EMAIL, PIN, STUDIO);
     expect(recorded[0].map((e) => e.portal)).toEqual(['studio', 'studio']);
+  });
+
+  it('writes nothing for a password sign-in refused at studio', async () => {
+    // Refused before any credential is looked at, so there is nothing to log.
+    const { service, recorded } = await build();
+    expect((await failureOf(service.validateCredentials(EMAIL, PASSWORD, STUDIO))).status).toBe(403);
+    expect(recorded).toHaveLength(0);
   });
 
   it('writes login_failed with the account for a wrong password', async () => {
@@ -174,7 +154,7 @@ describe('password sign-in', () => {
 describe('PIN sign-in', () => {
   it('writes login_success with method pin', async () => {
     const { service, recorded } = await build();
-    const claims = await service.validateKey(KEY, META);
+    const claims = await service.validatePin(EMAIL, PIN, STUDIO);
 
     expect(recorded[0].map((e) => [e.kind, e.method ?? null, e.sid])).toEqual([
       ['login_success', 'pin', claims.sid],
@@ -182,26 +162,35 @@ describe('PIN sign-in', () => {
     ]);
   });
 
-  it('writes key_failed, naming the door holder, for a wrong key', async () => {
+  it('writes key_failed, naming the account, for a wrong PIN', async () => {
     const { service, recorded } = await build();
-    await failureOf(service.validateKey('000000', META));
+    await failureOf(service.validatePin(EMAIL, '000000', META));
 
     expect(allEvents(recorded)).toEqual([
       { kind: 'key_failed', method: 'pin', accountId: USER_ID, portal: 'billing', ip: '203.0.113.7', userAgent: 'vitest' },
     ]);
   });
 
-  it('writes key_failed with no account when no key is configured', async () => {
-    const { service, recorded } = await build({ door: { keyHash: null, accountId: null } });
-    await failureOf(service.validateKey(KEY, META));
+  it('writes key_failed with no account for an unknown email', async () => {
+    const { service, recorded } = await build();
+    await failureOf(service.validatePin('nobody@example.com', PIN, META));
 
-    expect(allEvents(recorded)).toMatchObject([{ kind: 'key_failed', accountId: null }]);
+    expect(allEvents(recorded)).toEqual([
+      { kind: 'key_failed', method: 'pin', accountId: null, portal: 'billing', ip: '203.0.113.7', userAgent: 'vitest' },
+    ]);
+  });
+
+  it('writes key_failed, naming the account, when it has no PIN', async () => {
+    const { service, recorded } = await build({ holder: { pin: null } });
+    await failureOf(service.validatePin(EMAIL, PIN, META));
+
+    expect(allEvents(recorded)).toMatchObject([{ kind: 'key_failed', accountId: USER_ID }]);
   });
 
   it('writes key_locked for the failure that starts a lockout, instead of key_failed', async () => {
     const { service, recorded } = await build();
     for (let i = 0; i < 5; i += 1) {
-      await failureOf(service.validateKey('000000', META));
+      await failureOf(service.validatePin(EMAIL, '000000', META));
     }
     expect(allEvents(recorded).map((e) => e.kind)).toEqual([
       'key_failed',
@@ -213,36 +202,45 @@ describe('PIN sign-in', () => {
   });
 
   it('writes nothing for a request refused while locked', async () => {
-    const { service, recorded } = await build({ door: { lockedUntil: new Date(Date.now() + 60_000) } });
-    const refused = await failureOf(service.validateKey(KEY, META));
+    const { service, recorded } = await build();
+    for (let i = 0; i < 5; i += 1) {
+      await failureOf(service.validatePin(EMAIL, '000000', META));
+    }
+    recorded.length = 0;
+
+    const refused = await failureOf(service.validatePin(EMAIL, PIN, META));
 
     expect(refused.status).toBe(429);
     expect(recorded).toHaveLength(0);
   });
 
-  it('records only key_failed for the loser of a race to lock', async () => {
-    // Two fifth failures together: one CAS wins and locks, the other cannot
-    // know whether it would have, so it does not claim key_locked.
-    const { service, recorded } = await build({ door: { failedAttempts: 4 } });
-    await Promise.all([failureOf(service.validateKey('000000', META)), failureOf(service.validateKey('000001', META))]);
+  it('never puts the typed email or the PIN in any event', async () => {
+    const { service, recorded } = await build();
+    await service.validatePin(EMAIL, PIN, STUDIO);
+    await failureOf(service.validatePin(EMAIL, '987654', STUDIO));
+    await failureOf(service.validatePin('typed-by-someone@example.com', '135792', STUDIO));
 
-    expect(allEvents(recorded).map((e) => e.kind).sort()).toEqual(['key_failed', 'key_locked']);
+    const serialised = JSON.stringify(allEvents(recorded));
+    expect(serialised).not.toContain(EMAIL);
+    expect(serialised).not.toContain('typed-by-someone');
+    expect(serialised).not.toContain(PIN);
+    expect(serialised).not.toContain('987654');
+    expect(serialised).not.toContain('135792');
   });
 });
 
 describe('PIN sign-in and account types', () => {
-  it('treats a disabled door holder as no key: counted, never let in', async () => {
-    const { service, recorded, door } = await build({ holder: { disabledAt: new Date() } });
-    const refused = await failureOf(service.validateKey(KEY, META));
+  it('treats a disabled account as a wrong PIN: counted, never let in', async () => {
+    const { service, recorded } = await build({ holder: { disabledAt: new Date() } });
+    const refused = await failureOf(service.validatePin(EMAIL, PIN, STUDIO));
 
-    expect(refused.status).toBe(401);
-    expect(door.failedAttempts).toBe(1);
+    expect(refused).toEqual({ status: 401, body: expect.objectContaining({ attemptsRemaining: 4 }) });
     expect(allEvents(recorded).map((e) => e.kind)).toEqual(['key_failed']);
   });
 
-  it('refuses a client holder at billing with portal_denied, if the database was edited by hand', async () => {
+  it('refuses a client at billing with portal_denied, after the PIN is verified', async () => {
     const { service, recorded } = await build({ holder: { accountType: 'client', clientId: 42 } });
-    const refused = await failureOf(service.validateKey(KEY, META));
+    const refused = await failureOf(service.validatePin(EMAIL, PIN, META));
 
     expect(refused.status).toBe(403);
     expect(allEvents(recorded)).toEqual([

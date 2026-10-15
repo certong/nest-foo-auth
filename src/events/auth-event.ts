@@ -7,8 +7,9 @@ import { Portal } from '../portal/portal';
  *   login_success  a password or PIN sign-in succeeded; starts a session (sid)
  *   portal_entry   a session reached a portal; at most one per (sid, portal)
  *   login_failed   a password sign-in was refused
- *   key_failed     a wrong PIN that did not lock the door
- *   key_locked     a wrong PIN that started a lockout
+ *   key_failed     a PIN sign-in was refused (unknown email, no PIN, disabled
+ *                  account or wrong PIN) and did not lock the typed email
+ *   key_locked     a refused PIN sign-in that started the email's lockout
  *   logout         a session's refresh cookie was cleared
  *   portal_denied  a verified login or refresh at a portal its account type
  *                  may not enter (a client at billing)
