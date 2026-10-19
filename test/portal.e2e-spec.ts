@@ -23,8 +23,8 @@ afterAll(async () => {
 
 const audOf = (token: string) => JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString()).aud;
 
-const login = (origin?: string, body: Record<string, unknown> = { email: EMAIL, password: PASSWORD }) => {
-  const req = request(app.getHttpServer()).post('/api/auth/login');
+const login = (origin?: string, body: Record<string, unknown> = { email: EMAIL, pin: PIN }) => {
+  const req = request(app.getHttpServer()).post('/api/auth/pin');
   return (origin === undefined ? req : req.set('Origin', origin)).send(body);
 };
 
@@ -68,7 +68,7 @@ describe('the portal comes from the Origin header', () => {
   });
 
   it('will not take the portal from the body', async () => {
-    await login(BILLING_ORIGIN, { email: EMAIL, password: PASSWORD, portal: 'studio' }).expect(400);
+    await login(BILLING_ORIGIN, { email: EMAIL, pin: PIN, portal: 'studio' }).expect(400);
   });
 
   it('leaves the health check reachable with no Origin', async () => {

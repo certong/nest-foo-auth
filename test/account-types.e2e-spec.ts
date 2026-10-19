@@ -4,7 +4,7 @@ import request from 'supertest';
 import { REFRESH_COOKIE_NAME } from '../src/auth/session-cookie';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp } from './create-test-app';
-import { CLIENT_EMAIL, CLIENT_ID, CLIENT_USER_ID, EMAIL, PASSWORD, PIN, USER_ID, fakePrisma } from './fake-prisma';
+import {CLIENT_EMAIL, CLIENT_ID, CLIENT_USER_ID, EMAIL, PIN, USER_ID, fakePrisma} from './fake-prisma';
 import { BILLING_ORIGIN, STUDIO_ORIGIN } from './test-keys';
 
 /**
@@ -31,10 +31,6 @@ afterEach(async () => {
 const server = () => app.getHttpServer();
 const payloadOf = (token: string) => JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString());
 
-function login(origin: string, email: string, password = PASSWORD) {
-  return request(server()).post('/api/auth/login').set('Origin', origin).send({ email, password });
-}
-
 function pinLogin(origin: string, email: string, pin = PIN) {
   return request(server()).post('/api/auth/pin').set('Origin', origin).send({ email, pin });
 }
@@ -49,7 +45,6 @@ const refresh = (origin: string, cookie: string) =>
 
 describe('who may sign in where', () => {
   it('staff signs in to billing and to studio', async () => {
-    await login(BILLING_ORIGIN, EMAIL).expect(200);
     await pinLogin(BILLING_ORIGIN, EMAIL).expect(200);
     await pinLogin(STUDIO_ORIGIN, EMAIL).expect(200);
   });
@@ -62,7 +57,7 @@ describe('who may sign in where', () => {
   });
 
   it('a staff token says staff and carries no client', async () => {
-    const res = await login(BILLING_ORIGIN, EMAIL).expect(200);
+    const res = await pinLogin(BILLING_ORIGIN, EMAIL).expect(200);
 
     expect(res.body.user).toEqual({ id: USER_ID, email: EMAIL, accountType: 'staff' });
     const payload = payloadOf(res.body.accessToken);
@@ -70,21 +65,15 @@ describe('who may sign in where', () => {
     expect(payload).not.toHaveProperty('client_id');
   });
 
-  it('a client is refused at billing with 403, no cookie, and a portal_denied row', async () => {
-    const res = await login(BILLING_ORIGIN, CLIENT_EMAIL).expect(403);
+  // There was a password version of the portal_denied case here. With the
+  // password door closed it became the PIN case below, word for word, so only
+  // the one below remains.
 
-    expect(res.body.message).toBe('This account cannot sign in to this portal');
-    expect(cookieOf(res)).toBe('');
-    expect(fake.events).toEqual([
-      expect.objectContaining({ kind: 'portal_denied', accountId: CLIENT_USER_ID, portal: 'billing', method: 'password' }),
-    ]);
-  });
-
-  it('a client with the wrong password at billing gets the ordinary 401, not the 403', async () => {
-    // The portal check runs only after the password: otherwise the 403 would
-    // tell anyone that this email is a client account.
-    const res = await login(BILLING_ORIGIN, CLIENT_EMAIL, 'wrong').expect(401);
-    expect(res.body.message).toBe('Invalid email or password');
+  it('a client with the wrong PIN at billing gets the ordinary 401, not the 403', async () => {
+    // The portal check runs only after the PIN: otherwise the 403 would tell
+    // anyone that this email is a client account.
+    const res = await pinLogin(BILLING_ORIGIN, CLIENT_EMAIL, '000000').expect(401);
+    expect(res.body.message).toBe('Invalid email or PIN');
   });
 
   it('a client with the right PIN at billing is refused the same way, with portal_denied', async () => {
@@ -112,7 +101,7 @@ describe('single sign-on does not leak billing to a client', () => {
   });
 
   it('staff signed in at billing still refreshes into studio', async () => {
-    const cookie = cookieOf(await login(BILLING_ORIGIN, EMAIL).expect(200));
+    const cookie = cookieOf(await pinLogin(BILLING_ORIGIN, EMAIL).expect(200));
     const res = await refresh(STUDIO_ORIGIN, cookie).expect(200);
     expect(payloadOf(res.body.accessToken)).toMatchObject({ aud: 'studio', account_type: 'staff' });
   });

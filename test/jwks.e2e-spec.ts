@@ -5,7 +5,7 @@ import request from 'supertest';
 import { generateSigningJwk } from '../src/auth/token-keys';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp } from './create-test-app';
-import { EMAIL, PASSWORD, fakePrisma } from './fake-prisma';
+import { EMAIL, PIN, fakePrisma } from './fake-prisma';
 import { BILLING_ORIGIN, TEST_ISSUER, testKeyMaterial } from './test-keys';
 
 let app: INestApplication;
@@ -58,9 +58,9 @@ describe('GET /.well-known/jwks.json', () => {
   it('verifies a token the service just issued', async () => {
     const jwks = (await request(app.getHttpServer()).get('/.well-known/jwks.json')).body;
     const login = await request(app.getHttpServer())
-      .post('/api/auth/login')
+      .post('/api/auth/pin')
       .set('Origin', BILLING_ORIGIN)
-      .send({ email: EMAIL, password: PASSWORD })
+      .send({ email: EMAIL, pin: PIN })
       .expect(200);
 
     const { payload, protectedHeader } = await jwtVerify(login.body.accessToken, createLocalJWKSet(jwks), {

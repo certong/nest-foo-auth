@@ -5,15 +5,17 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { REFRESH_COOKIE_NAME } from '../src/auth/session-cookie';
 import { hashPassword } from '../src/auth/password';
 import { createTestApp } from './create-test-app';
-import { BILLING_ORIGIN } from './test-keys';
+import { BILLING_ORIGIN, STUDIO_ORIGIN } from './test-keys';
 
 const USER_ID = 'a3f1c2d4-0000-4000-8000-000000000001';
 const PASSWORD = 's3cret-password';
+const PIN = '042719';
 
 let app: INestApplication;
 
 beforeAll(async () => {
   const passwordHash = await hashPassword(PASSWORD);
+  const pinHash = await hashPassword(PIN);
 
   app = await createTestApp((builder) =>
     builder
@@ -23,7 +25,7 @@ beforeAll(async () => {
           findUnique: ({ where }: { where: { email?: string; id?: string } }) =>
             Promise.resolve(
               where.email === 'admin@example.com' || where.id === USER_ID
-                ? { id: USER_ID, email: 'admin@example.com', passwordHash, accountType: 'staff', clientId: null, disabledAt: null }
+                ? { id: USER_ID, email: 'admin@example.com', passwordHash, accountType: 'staff', clientId: null, disabledAt: null, pin: { accountId: USER_ID, pinHash } }
                 : null,
             ),
         },
@@ -49,19 +51,22 @@ function refreshCookie(res: request.Response): string | undefined {
 /** Signs in and returns both halves of the session. */
 async function signIn(): Promise<{ accessToken: string; cookie: string }> {
   const res = await request(app.getHttpServer())
-    .post('/api/auth/login')
+    .post('/api/auth/pin')
     .set('Origin', BILLING_ORIGIN)
-    .send({ email: 'admin@example.com', password: PASSWORD })
+    .send({ email: 'admin@example.com', pin: PIN })
     .expect(200);
   return { accessToken: res.body.accessToken, cookie: refreshCookie(res) as string };
 }
 
-describe('POST /api/auth/login', () => {
+describe('POST /api/auth/pin — the session it returns', () => {
+  // The credential itself is auth-pin.e2e-spec's subject. What belongs here is
+  // the shape of a session, which every route below reads: a token the caller
+  // can attach, and a refresh token it cannot.
   it('returns an access token and the user', async () => {
     const res = await request(app.getHttpServer())
-      .post('/api/auth/login')
+      .post('/api/auth/pin')
       .set('Origin', BILLING_ORIGIN)
-      .send({ email: 'admin@example.com', password: PASSWORD })
+      .send({ email: 'admin@example.com', pin: PIN })
       .expect(200);
 
     expect(res.body.user).toEqual({ id: USER_ID, email: 'admin@example.com', accountType: 'staff' });
@@ -72,9 +77,9 @@ describe('POST /api/auth/login', () => {
     // The whole point of the split: script can read the access token because it
     // has to attach it, and cannot read the token that mints more.
     const res = await request(app.getHttpServer())
-      .post('/api/auth/login')
+      .post('/api/auth/pin')
       .set('Origin', BILLING_ORIGIN)
-      .send({ email: 'admin@example.com', password: PASSWORD })
+      .send({ email: 'admin@example.com', pin: PIN })
       .expect(200);
 
     const cookie = refreshCookie(res);
@@ -82,50 +87,20 @@ describe('POST /api/auth/login', () => {
     expect(cookie).toContain('HttpOnly');
     expect(Object.keys(res.body).sort()).toEqual(['accessToken', 'user']);
   });
+});
 
-  it('accepts the email in any case', async () => {
-    await request(app.getHttpServer())
-      .post('/api/auth/login')
-      .set('Origin', BILLING_ORIGIN)
-      .send({ email: '  ADMIN@Example.com ', password: PASSWORD })
-      .expect(200);
-  });
+describe('POST /api/auth/login', () => {
+  it('is closed at every portal, and names the door that works', async () => {
+    for (const origin of [BILLING_ORIGIN, STUDIO_ORIGIN]) {
+      const res = await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .set('Origin', origin)
+        .send({ email: 'admin@example.com', password: PASSWORD })
+        .expect(403);
 
-  it('rejects a wrong password with 401 and sets no cookie', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/api/auth/login')
-      .set('Origin', BILLING_ORIGIN)
-      .send({ email: 'admin@example.com', password: 'wrong' })
-      .expect(401);
-
-    expect(res.body.message).toBe('Invalid email or password');
-    expect(refreshCookie(res)).toBeUndefined();
-  });
-
-  it('answers an unknown email identically to a wrong password', async () => {
-    const unknown = await request(app.getHttpServer())
-      .post('/api/auth/login')
-      .set('Origin', BILLING_ORIGIN)
-      .send({ email: 'nobody@example.com', password: 'wrong' })
-      .expect(401);
-
-    expect(unknown.body.message).toBe('Invalid email or password');
-  });
-
-  it('rejects a malformed email with 400', async () => {
-    await request(app.getHttpServer())
-      .post('/api/auth/login')
-      .set('Origin', BILLING_ORIGIN)
-      .send({ email: 'not-an-email', password: PASSWORD })
-      .expect(400);
-  });
-
-  it('rejects an unexpected body key with 400', async () => {
-    await request(app.getHttpServer())
-      .post('/api/auth/login')
-      .set('Origin', BILLING_ORIGIN)
-      .send({ email: 'admin@example.com', password: PASSWORD, role: 'admin' })
-      .expect(400);
+      expect(res.body.message).toBe('Use PIN sign-in for this portal');
+      expect(refreshCookie(res)).toBeUndefined();
+    }
   });
 });
 

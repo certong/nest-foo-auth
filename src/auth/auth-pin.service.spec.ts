@@ -182,17 +182,12 @@ describe('AuthService.validatePin — the lockout', () => {
     await expect(service.validatePin(EMAIL, PIN, STUDIO)).resolves.toMatchObject({ id: USER_ID });
   });
 
-  it('is cleared by a password sign-in at billing', async () => {
-    const passwordHash = await hashPassword('s3cret-password');
-    const { service } = await buildService({ passwordHash } as Partial<Row>);
-    for (let i = 0; i < 5; i += 1) {
-      await failureOf(service.validatePin(EMAIL, '000000', STUDIO));
-    }
-
-    await service.validateCredentials(EMAIL, 's3cret-password', BILLING);
-
-    await expect(service.validatePin(EMAIL, PIN, STUDIO)).resolves.toMatchObject({ id: USER_ID });
-  });
+  // Until password sign-in was retired, a password at billing cleared this
+  // lockout — proving the password was not the guessing the lockout exists to
+  // stop. With the password gone there is no such proof left to offer, and
+  // waiting out the fifteen minutes is the only way back in. That is a
+  // deliberate narrowing, not an oversight: there is no override left for an
+  // operator who locks themselves out of billing.
 });
 
 describe('AuthService.validatePin — portals', () => {

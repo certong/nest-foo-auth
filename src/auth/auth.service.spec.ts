@@ -1,11 +1,10 @@
-import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { testKeys } from '../../test/test-keys';
 import { RequestMeta } from '../events/auth-event';
 import { AuthEventService } from '../events/auth-event.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthService, INVALID_CREDENTIALS, USE_PIN_SIGN_IN } from './auth.service';
-import { hashPassword } from './password';
+import { AuthService } from './auth.service';
 import { PinLockout } from './pin-lockout';
 import { verifyToken } from './session-token';
 import { TOKEN_KEYS } from './token-keys';
@@ -32,70 +31,14 @@ async function buildService(row: unknown) {
   return { service: moduleRef.get(AuthService), findUnique };
 }
 
-describe('AuthService.validateCredentials', () => {
-  it('returns the claims for a correct password', async () => {
-    const passwordHash = await hashPassword('s3cret-password');
-    const { service } = await buildService({ id: USER_ID, email: 'admin@example.com', passwordHash, ...STAFF });
-
-    await expect(service.validateCredentials('admin@example.com', 's3cret-password', META)).resolves.toEqual({
-      id: USER_ID,
-      email: 'admin@example.com',
-      sid: expect.stringMatching(/^[0-9a-f-]{36}$/),
-      accountType: 'staff',
-      clientId: null,
-    });
-  });
-
-  it('refuses every password sign-in at studio with 403, before looking anything up', async () => {
-    // Studio is PIN-only (FA-24). Refusing before the lookup means the answer
-    // is the same for every email, so it cannot reveal which ones exist.
-    const passwordHash = await hashPassword('s3cret-password');
-    const { service, findUnique } = await buildService({ id: USER_ID, email: 'admin@example.com', passwordHash, ...STAFF });
-
-    const studio = { ...META, portal: 'studio' as const };
-    for (const password of ['s3cret-password', 'wrong']) {
-      await expect(service.validateCredentials('admin@example.com', password, studio)).rejects.toThrow(
-        new ForbiddenException(USE_PIN_SIGN_IN),
-      );
-    }
-    await expect(service.validateCredentials('nobody@example.com', 'x', studio)).rejects.toThrow(USE_PIN_SIGN_IN);
-    expect(findUnique).not.toHaveBeenCalled();
-  });
-
-  it('rejects a wrong password', async () => {
-    const passwordHash = await hashPassword('s3cret-password');
-    const { service } = await buildService({ id: USER_ID, email: 'admin@example.com', passwordHash, ...STAFF });
-
-    await expect(service.validateCredentials('admin@example.com', 'wrong', META)).rejects.toThrow(
-      UnauthorizedException,
-    );
-  });
-
-  it('gives an unknown email the identical rejection, never a hint that it is unknown', async () => {
-    const { service } = await buildService(null);
-
-    await expect(service.validateCredentials('nobody@example.com', 'whatever', META)).rejects.toThrow(
-      INVALID_CREDENTIALS,
-    );
-  });
-
-  it('still spends verify time on an unknown email', async () => {
-    // Returning early for a missing row leaks, through response timing, which
-    // address is the administrator's.
-    const { service } = await buildService(null);
-
-    const started = performance.now();
-    await service.validateCredentials('nobody@example.com', 'whatever', META).catch(() => undefined);
-    expect(performance.now() - started).toBeGreaterThan(5);
-  });
-
-  it('looks the user up by the email it was given', async () => {
-    const { service, findUnique } = await buildService(null);
-
-    await service.validateCredentials('admin@example.com', 'whatever', META).catch(() => undefined);
-    expect(findUnique).toHaveBeenCalledWith({ where: { email: 'admin@example.com' } });
-  });
-});
+/**
+ * AuthService.validateCredentials is gone: password sign-in is retired at both
+ * portals (studio since FA-24, billing once a PIN alone was enough there), so
+ * there is no password path left to test. The facts these cases pinned down —
+ * an unknown email rejected identically to a wrong credential, the Argon2 time
+ * spent either way, the lookup keyed on the address given — are asserted for
+ * the PIN door in auth-pin.service.spec.ts.
+ */
 
 describe('AuthService token minting', () => {
   const CLAIMS = { id: USER_ID, email: 'admin@example.com', sid: SID, accountType: 'staff' as const, clientId: null };
