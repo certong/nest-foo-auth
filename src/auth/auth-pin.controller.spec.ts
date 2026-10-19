@@ -141,9 +141,26 @@ describe('PinLoginDto', () => {
     expect(await errorsFor({ email: 'a@example.com', pin: 42719 })).not.toHaveLength(0);
   });
 
-  it('rejects a missing or malformed email', async () => {
-    expect(await errorsFor({ pin: '042719' })).not.toHaveLength(0);
+  /**
+   * FA-25. Omitting the email is no longer a validation failure: billing is
+   * single-operator and does not ask for one. Whether its absence is ALLOWED is
+   * a portal question, and this DTO cannot answer it — validation runs before
+   * `Origin` has been resolved into a portal — so AuthService enforces it and
+   * refuses a studio request that left it out.
+   */
+  it('accepts a body with no email at all', async () => {
+    expect(await errorsFor({ pin: '042719' })).toHaveLength(0);
+  });
+
+  /**
+   * Omitted is the only way to leave it out. An empty string or a null is a
+   * malformed address, not an absent one, and treating them as "not given"
+   * would let a studio caller skip the email by sending a blank one.
+   */
+  it('still rejects a malformed, blank or null email', async () => {
     expect(await errorsFor({ email: 'not-an-email', pin: '042719' })).not.toHaveLength(0);
+    expect(await errorsFor({ email: '', pin: '042719' })).not.toHaveLength(0);
+    expect(await errorsFor({ email: null, pin: '042719' })).not.toHaveLength(0);
   });
 
   it('rejects an unknown property, so the whitelist cannot be widened', async () => {

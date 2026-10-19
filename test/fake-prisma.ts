@@ -50,8 +50,28 @@ export async function fakePrisma() {
     ),
   );
 
+  /**
+   * Billing's PIN-only sign-in resolves its one operator with this (FA-25).
+   *
+   * The `where` is honoured rather than ignored, because the filter IS the
+   * behaviour under test: staff only, not disabled, holding a PIN. A fake that
+   * returned every account would pass whether or not the service asked for the
+   * right ones, and `accounts` is live, so a suite can disable the operator or
+   * add a second one and see the resolution change.
+   */
+  const findMany = vi.fn(
+    ({ where, take }: { where: { accountType?: string; disabledAt?: Date | null; pin?: unknown }; take?: number }) => {
+      const matched = accounts
+        .filter((a) => where.accountType === undefined || a.accountType === where.accountType)
+        .filter((a) => where.disabledAt !== null || a.disabledAt === null)
+        .filter((a) => where.pin === undefined || a.pin !== null)
+        .map((a) => ({ email: a.email }));
+      return Promise.resolve(take === undefined ? matched : matched.slice(0, take));
+    },
+  );
+
   const prisma = {
-    account: { findUnique },
+    account: { findUnique, findMany },
     authEvent: {
       createMany: ({ data }: { data: Record<string, unknown>[] }) => {
         let count = 0;
@@ -69,5 +89,5 @@ export async function fakePrisma() {
     },
     $executeRaw: () => Promise.resolve(0),
   };
-  return { prisma, events, findUnique, accounts };
+  return { prisma, events, findUnique, findMany, accounts };
 }

@@ -120,6 +120,13 @@ export class AuthService {
    * Email and six-digit PIN (POST /auth/pin, FA-24). Each account holds its own
    * PIN (auth.account_pin), created by `npm run key:set`.
    *
+   * The email is optional from billing (FA-25): that portal is staff-only and
+   * single-operator, so `billingOperatorEmail` resolves whose PIN it must be
+   * and everything below is unchanged. Studio must still send one — a PIN there
+   * names nobody. The resolution happens BEFORE the lockout is taken, so the
+   * attempt is still counted against an account rather than against a portal,
+   * and the budget logic below never learns the difference.
+   *
    * An unknown email, an account with no PIN, a disabled account and a wrong
    * PIN all cost one Argon2 verify, count against the typed email's lockout,
    * and get the same 401 body. Any difference between them would tell a caller
@@ -128,8 +135,9 @@ export class AuthService {
    * The lockout, not the PIN, is the security control: 10^6 combinations falls
    * to a script in minutes, five tries per fifteen minutes does not.
    */
-  async validatePin(email: string, pin: string, meta: RequestMeta): Promise<SessionClaims> {
-    const attempt = this.pinLockout.take(email);
+  async validatePin(email: string | undefined, pin: string, meta: RequestMeta): Promise<SessionClaims> {
+    const resolved = email ?? (await this.billingOperatorEmail(meta));
+    const attempt = this.pinLockout.take(resolved);
     if (attempt.locked) {
       // Before the PIN is verified, so a locked caller cannot buy their way back
       // in early with a correct guess and learns nothing from one. Not logged:
@@ -138,7 +146,7 @@ export class AuthService {
       throw pinLocked(attempt.retryAfter);
     }
 
-    const user = await this.prisma.account.findUnique({ where: { email }, include: { pin: true } });
+    const user = await this.prisma.account.findUnique({ where: { email: resolved }, include: { pin: true } });
     let account: SessionAccount | null = null;
     if (user === null || user.pin === null) {
       await burnVerifyTime(pin);
@@ -166,9 +174,66 @@ export class AuthService {
 
     // The PIN was right, so the attempt taken above is given back — before the
     // portal check, which refuses a right PIN rather than a wrong one.
-    this.pinLockout.clear(email);
+    this.pinLockout.clear(resolved);
     await this.assertPortal(account, 'pin', null, meta);
     return this.startSession(account, 'pin', meta);
+  }
+
+  /**
+   * Whose PIN a billing request without an email is offering (FA-25).
+   *
+   * Billing is staff-only and single-operator, so there is one account its PIN
+   * could belong to and the portal does not need to ask its operator to type an
+   * address before six digits. Studio is not: several people hold accounts
+   * there, a PIN alone names none of them, and a request from that portal with
+   * no email is refused here rather than guessed at.
+   *
+   * Resolved by LOOKUP, not by trying the PIN against every staff account. A
+   * search would cost one Argon2 verify per account and would have no defined
+   * answer when two of them chose the same six digits.
+   *
+   * Zero matches, or more than one, is refused exactly as a wrong PIN is —
+   * same 401, same shape — so this never becomes a way to ask how many staff
+   * accounts exist. More than one is the case worth knowing about: billing's
+   * single-operator assumption has stopped holding and this door should be
+   * reconsidered rather than silently picking a human. The lockout is not
+   * touched on that path; nothing was typed wrongly.
+   */
+  private async billingOperatorEmail(meta: RequestMeta): Promise<string> {
+    if (meta.portal === 'billing') {
+      const operators = await this.prisma.account.findMany({
+        where: { accountType: 'staff', disabledAt: null, pin: { isNot: null } },
+        select: { email: true },
+        // Two is all it takes to know the assumption is broken; there is no
+        // reason to read the rest.
+        take: 2,
+      });
+      if (operators.length === 1) {
+        return operators[0]!.email;
+      }
+    }
+
+    // Nothing to verify against: studio sent no email, or billing has no single
+    // operator to attribute the PIN to. Both answer exactly as a wrong PIN
+    // does, down to `attemptsRemaining` — `pinRejected` requires that field so
+    // every rejection has one shape, and a body that lacked it here would make
+    // this path readable on the first request.
+    //
+    // The count comes from a real attempt against a key of the portal's own, so
+    // the answer is honest and the path cannot be hammered. It is a separate
+    // key from any account's: a caller who cannot name an account must not be
+    // able to spend the operator's five tries and lock them out.
+    const attempt = this.pinLockout.take(`portal:${meta.portal}`);
+    if (attempt.locked) {
+      throw pinLocked(attempt.retryAfter);
+    }
+    await this.log([
+      { kind: attempt.locks ? 'key_locked' : 'key_failed', method: 'pin', accountId: null, ...fromMeta(meta) },
+    ]);
+    // The same Argon2 time a real verify costs. Without it, "no operator
+    // resolved" returns measurably faster than a wrong PIN.
+    await burnVerifyTime('000000');
+    throw pinRejected(attempt.attemptsRemaining);
   }
 
   /**

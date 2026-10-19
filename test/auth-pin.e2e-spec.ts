@@ -152,3 +152,84 @@ describe('POST /api/auth/key', () => {
     await request(app.getHttpServer()).post('/api/auth/key').set('Origin', BILLING_ORIGIN).send({ key: PIN }).expect(404);
   });
 });
+
+/**
+ * FA-25: billing signs in with a PIN and nothing else.
+ *
+ * Over HTTP, because the rule spans three layers that unit tests see
+ * separately — PortalGuard turning an Origin into a portal, the DTO letting the
+ * field be absent, and AuthService deciding whether that absence is allowed.
+ */
+describe('POST /api/auth/pin — no email, from billing', () => {
+  const pinOnly = (pin: string, origin = BILLING_ORIGIN) =>
+    request(app.getHttpServer()).post('/api/auth/pin').set('Origin', origin).send({ pin });
+
+  it('signs the operator in and issues a billing token with the cookie', async () => {
+    const res = await pinOnly(PIN).expect(200);
+
+    expect(res.body).toEqual({
+      accessToken: expect.any(String),
+      user: { id: USER_ID, email: EMAIL, accountType: 'staff' },
+    });
+    const payload = JSON.parse(Buffer.from(res.body.accessToken.split('.')[1], 'base64url').toString());
+    expect(payload.aud).toBe('billing');
+    expect(cookieOf(res)).not.toBe('');
+  });
+
+  /** The same door, so the same answer: a body with the email and one without
+   * must be indistinguishable once signed in. */
+  it('returns what the email-bearing request returns', async () => {
+    const withEmail = await pinLogin(EMAIL, PIN, BILLING_ORIGIN).expect(200);
+    const without = await pinOnly(PIN).expect(200);
+
+    expect(without.body.user).toEqual(withEmail.body.user);
+  });
+
+  it('rejects a wrong PIN with the usual 401', async () => {
+    const res = await pinOnly('999999').expect(401);
+    expect(res.body).toMatchObject({ attemptsRemaining: expect.any(Number) });
+  });
+
+  /** Studio has several accounts, so a PIN there names nobody. */
+  it('refuses the same request from studio', async () => {
+    await pinOnly(PIN, STUDIO_ORIGIN).expect(401);
+  });
+
+  /** A PIN is still six digits — dropping the email does not relax the rest. */
+  it('still validates the PIN itself', async () => {
+    await pinOnly('12345').expect(400);
+  });
+
+  /** Omitting the key is the only way to leave the email out; a blank one is a
+   * malformed address and the DTO says so. */
+  it('rejects a blank email rather than treating it as absent', async () => {
+    await request(app.getHttpServer())
+      .post('/api/auth/pin')
+      .set('Origin', BILLING_ORIGIN)
+      .send({ email: '', pin: PIN })
+      .expect(400);
+  });
+
+  /** The single-operator assumption, made visible: with a second staff account
+   * holding a PIN there is no one answer, and the request is refused rather
+   * than resolved to a guess. */
+  it('refuses once a second staff account holds a PIN', async () => {
+    fake.accounts.push({
+      id: '00000000-0000-4000-8000-0000000000ff',
+      email: 'second@example.com',
+      passwordHash: 'x',
+      accountType: 'staff',
+      clientId: null,
+      disabledAt: null,
+      pin: { accountId: '00000000-0000-4000-8000-0000000000ff', pinHash: 'x' },
+    });
+
+    await pinOnly(PIN).expect(401);
+  });
+
+  /** A client account with a PIN is not an operator: billing is staff-only, so
+   * it must not make the resolution ambiguous. The fixture ships one. */
+  it('is not confused by the client account that also holds a PIN', async () => {
+    await pinOnly(PIN).expect(200);
+  });
+});

@@ -77,6 +77,13 @@ export class AuthController {
    * Email and six-digit PIN (POST /auth/pin, FA-24). The only way into studio;
    * billing accepts it beside the password.
    *
+   * From billing the email may be omitted entirely (FA-25) — that portal is
+   * staff-only and single-operator, so the service resolves whose PIN it is
+   * rather than making the operator type an address before six digits. Studio
+   * must send one. The DTO cannot tell the two apart, because validation runs
+   * before `Origin` has been resolved into a portal, so it accepts the field as
+   * optional and AuthService enforces the rule.
+   *
    * A new credential, not a new session mechanism: this returns byte-for-byte
    * what /auth/login returns and sets the same cookie the same way, so
    * /auth/refresh, /me, the guard and the cookie's lifetime cannot tell which

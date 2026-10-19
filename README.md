@@ -23,12 +23,44 @@ anything else is a 403. Except where noted, mutating requests must send
 | | | Returns |
 |---|---|---|
 | `POST /api/auth/login` | `{ email, password }`, throttled 10/15 min/IP | `{ accessToken, user: { id, email, accountType, clientId? } }` + refresh cookie; 403 for a client at billing; 403 `Use PIN sign-in for this portal` at studio |
-| `POST /api/auth/pin` | `{ email, pin }` (six digits), same throttle; 5 wrong tries lock that email for 15 min (429 `retryAfter`) | same as login; 403 for a client at billing |
+| `POST /api/auth/pin` | `{ email, pin }` (six digits), same throttle; 5 wrong tries lock that email for 15 min (429 `retryAfter`). From **billing** the email may be omitted — see below | same as login; 403 for a client at billing |
 | `POST /api/auth/refresh` | refresh cookie | `{ accessToken }` for the requesting portal; 403 for a client at billing, 401 once disabled |
 | `POST /api/auth/logout` | — | 204, cookie cleared (signs out of every portal) |
 | `GET /api/me` | `Authorization: Bearer <access token for this portal>` | `{ id, email, accountType, clientId? }` |
 | `GET /.well-known/jwks.json` | no Origin needed | the public signing keys |
 | `GET /api/health` | no Origin needed | `{ status: 'ok' }` |
+
+### Billing signs in with a PIN alone (FA-25)
+
+`POST /api/auth/pin` accepts `{ pin }` with no `email` **from the billing
+origin only**. Billing is staff-only and single-operator, so a PIN there can
+belong to one account and the portal does not ask its operator to type an
+address before six digits. Studio is not single-operator: a PIN names nobody
+there, and the same request is refused.
+
+| portal | body | |
+|---|---|---|
+| billing | `{ pin }` | resolves the operator, then behaves exactly as `{ email, pin }` |
+| billing | `{ email, pin }` | unchanged |
+| studio | `{ pin }` | 401, in the same shape as a wrong PIN |
+| studio | `{ email, pin }` | unchanged |
+
+The operator is the one **enabled staff account holding a PIN**, found by
+lookup — not by trying the PIN against every account, which would cost an
+Argon2 verify each and have no defined answer when two of them chose the same
+six digits. Zero matches, or more than one, is refused exactly as a wrong PIN
+is, so this never becomes a way to count accounts. More than one means the
+single-operator assumption has stopped holding and the door should be
+reconsidered rather than silently picking a human.
+
+The lockout is unchanged: the account is resolved *before* the attempt is
+taken, so PIN-only guessing spends the same five tries per fifteen minutes
+against the same key an email-bearing caller would. The unresolvable paths
+have a key of their own, so a caller who cannot name an account cannot lock
+the operator out of their own portal.
+
+Omitting the key is the only way to leave the email out. An empty string or a
+null is a malformed address, not an absent one, and is a 400.
 
 Access tokens last 15 minutes, the refresh cookie 12 hours. Claims: `iss`,
 `aud` (`billing` | `studio`), `sub`, `email`, `sid`, `typ`, `account_type`
