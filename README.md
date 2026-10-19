@@ -2,7 +2,7 @@
 
 The one place sign-in happens for the foo platform. Issues ES256 tokens for the
 **billing** and **studio** portals, owns the `auth` schema of
-`foo_platform_db`, and publishes the public key the product backends verify
+`foo_platform`, and publishes the public key the product backends verify
 with. Sign in at one portal and you are signed in at every portal your account
 may enter.
 

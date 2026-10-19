@@ -6,10 +6,10 @@
     "node": ">=20"
   },
   "scripts": {
-    "env:local": "scripts/use-env.sh local",
-    "env:dev": "scripts/use-env.sh dev",
-    "env:uat": "scripts/use-env.sh uat",
-    "env:which": "scripts/use-env.sh",
+    "env:local": "node scripts/use-env.mjs local",
+    "env:dev": "node scripts/use-env.mjs dev",
+    "env:uat": "node scripts/use-env.mjs uat",
+    "env:which": "node scripts/use-env.mjs",
     "postinstall": "prisma generate",
     "prepare": "node scripts/install-git-hooks.mjs",
     "build": "nest build",
