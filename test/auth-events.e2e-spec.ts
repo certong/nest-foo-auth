@@ -4,7 +4,7 @@ import request from 'supertest';
 import { REFRESH_COOKIE_NAME } from '../src/auth/session-cookie';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp } from './create-test-app';
-import { EMAIL, PASSWORD, USER_ID, fakePrisma } from './fake-prisma';
+import { EMAIL, PIN, USER_ID, fakePrisma } from './fake-prisma';
 import { BILLING_ORIGIN, STUDIO_ORIGIN } from './test-keys';
 
 /**
@@ -31,7 +31,7 @@ afterEach(async () => {
 const server = () => app.getHttpServer();
 
 async function signIn(origin: string): Promise<string> {
-  const res = await request(server()).post('/api/auth/login').set('Origin', origin).set('User-Agent', 'e2e-browser').send({ email: EMAIL, password: PASSWORD }).expect(200);
+  const res = await request(server()).post('/api/auth/pin').set('Origin', origin).set('User-Agent', 'e2e-browser').send({ email: EMAIL, pin: PIN }).expect(200);
   const raw = res.headers['set-cookie'] as unknown as string[];
   return raw.find((c) => c.startsWith(`${REFRESH_COOKIE_NAME}=`))!.split(';')[0];
 }
@@ -87,20 +87,20 @@ describe('the rows themselves', () => {
     ]);
     expect(new Set(events.map((e) => e.sid)).size).toBe(1);
     expect(events.every((e) => e.accountId === USER_ID)).toBe(true);
-    expect(events[0]).toMatchObject({ method: 'password', userAgent: 'e2e-browser' });
+    expect(events[0]).toMatchObject({ method: 'pin', userAgent: 'e2e-browser' });
     expect(typeof events[0].ip).toBe('string');
   });
 
   it('a failed sign-in for an unknown email stores no account and no email', async () => {
-    await request(server()).post('/api/auth/login').set('Origin', BILLING_ORIGIN).send({ email: 'typed-a-password@example.com', password: 'x' }).expect(401);
+    await request(server()).post('/api/auth/pin').set('Origin', BILLING_ORIGIN).send({ email: 'typed-a-pin@example.com', pin: '000000' }).expect(401);
 
     expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ kind: 'login_failed', accountId: null, method: 'password', portal: 'billing' });
-    expect(JSON.stringify(events)).not.toContain('typed-a-password');
+    expect(events[0]).toMatchObject({ kind: 'key_failed', accountId: null, method: 'pin', portal: 'billing' });
+    expect(JSON.stringify(events)).not.toContain('typed-a-pin');
   });
 
   it('a refused origin writes nothing at all', async () => {
-    await request(server()).post('/api/auth/login').set('Origin', 'https://evil.example').send({ email: EMAIL, password: 'x' }).expect(403);
+    await request(server()).post('/api/auth/pin').set('Origin', 'https://evil.example').send({ email: EMAIL, pin: PIN }).expect(403);
     expect(events).toHaveLength(0);
   });
 });

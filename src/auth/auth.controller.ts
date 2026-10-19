@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -17,9 +18,8 @@ import { requestMeta } from '../events/request-meta';
 import { Portal } from '../portal/portal';
 import { CurrentUser } from './current-user.decorator';
 import { AuthenticatedUser, toAuthenticatedUser } from './authenticated-user';
-import { AuthService } from './auth.service';
+import { AuthService, USE_PIN_SIGN_IN } from './auth.service';
 import { Public } from './public.decorator';
-import { LoginDto } from './dto/login.dto';
 import { PinLoginDto } from './dto/pin-login.dto';
 import { PinThrottlerFilter } from './pin-throttler.filter';
 import { LoginResponse, RefreshResponse } from './auth-response';
@@ -49,28 +49,25 @@ export class AuthController {
   }
 
   /**
-   * Returns the access token and the user, and sets the refresh cookie.
+   * Retired. Both portals sign in with a PIN: studio with email and PIN
+   * (FA-24), billing with a PIN alone (FA-25). There is no portal left that a
+   * password opens, so there is nothing for this route to verify.
    *
-   * The split is the point (CP-37): the frontend holds the access token and
-   * attaches it, so it must be able to read it — and it expires in fifteen
-   * minutes. The refresh token, which can mint more for twelve hours, goes
-   * where script cannot reach it.
+   * Kept, rather than deleted, and answering 403 with the same message studio
+   * already gave a password: a caller that still posts here is a frontend
+   * built against the old contract, and `Use PIN sign-in for this portal`
+   * tells it what to do instead. A 404 would read as a wrong URL or a
+   * half-deployed service and send someone looking in the wrong place.
    *
-   * The access token is for the portal this request came from; the cookie is
-   * good at every portal, which is what signs the user in everywhere at once.
+   * No body is read and no account is looked up, so this says nothing about
+   * which addresses exist — and no password reaches the service, which is why
+   * `validateCredentials` is gone rather than gated.
    */
   @Public()
-  @UseGuards(ThrottlerGuard)
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.FORBIDDEN)
   @Post('auth/login')
-  async login(
-    @Body() dto: LoginDto,
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<LoginResponse> {
-    const meta = requestMeta(req);
-    const claims = await this.authService.validateCredentials(dto.email, dto.password, meta);
-    return this.signedIn(claims, meta.portal, res);
+  login(): never {
+    throw new ForbiddenException(USE_PIN_SIGN_IN);
   }
 
   /**

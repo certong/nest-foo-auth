@@ -8,7 +8,7 @@ import { testKeys } from '../../test/test-keys';
 import { AuthEventService } from '../events/auth-event.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthController } from './auth.controller';
-import { AuthService, PIN_LOCKED } from './auth.service';
+import { AuthService, PIN_LOCKED, USE_PIN_SIGN_IN } from './auth.service';
 import { PinLoginDto } from './dto/pin-login.dto';
 import { PinThrottlerFilter } from './pin-throttler.filter';
 import { PinLockout } from './pin-lockout';
@@ -72,34 +72,42 @@ async function buildController() {
   return moduleRef.get(AuthController);
 }
 
-describe('POST /auth/pin — parity with /auth/login', () => {
-  it('returns the same body shape as a password sign-in', async () => {
+/**
+ * These once compared the PIN door to the password door, which was the clearest
+ * way to say "nothing downstream can tell which was used". Password sign-in is
+ * retired, so the contract is asserted directly instead — the same facts, with
+ * no second door to read them off.
+ */
+describe('POST /auth/pin — the sign-in contract', () => {
+  it('returns exactly an access token and the user', async () => {
     const controller = await buildController();
-    const viaPassword = await controller.login(
-      { email: 'admin@example.com', password: PASSWORD },
-      REQ,
-      recordingResponse().res,
-    );
     const viaPin = await controller.pinLogin({ email: 'admin@example.com', pin: PIN }, REQ, recordingResponse().res);
 
-    expect(Object.keys(viaPin).sort()).toEqual(Object.keys(viaPassword).sort());
-    expect(viaPin.user).toEqual(viaPassword.user);
+    expect(Object.keys(viaPin).sort()).toEqual(['accessToken', 'user']);
+    expect(viaPin.user).toEqual({ id: USER_ID, email: 'admin@example.com', accountType: 'staff' });
     expect(typeof viaPin.accessToken).toBe('string');
   });
 
-  it('sets a refresh cookie with identical name and attributes', async () => {
-    // Nothing downstream of sign-in should be able to tell which door was used,
-    // so the cookie has to match on every attribute, not just the name.
+  it('sets exactly one refresh cookie, httpOnly and scoped to the auth routes', async () => {
+    // The attributes are the security boundary: script must not be able to read
+    // the refresh token, and `path` keeps the browser from attaching it to
+    // anything but /api/auth — refresh and logout, the only routes that read it.
     const controller = await buildController();
-    const passwordRes = recordingResponse();
     const pinRes = recordingResponse();
 
-    await controller.login({ email: 'admin@example.com', password: PASSWORD }, REQ, passwordRes.res);
     await controller.pinLogin({ email: 'admin@example.com', pin: PIN }, REQ, pinRes.res);
 
     expect(pinRes.cookies).toHaveLength(1);
-    expect(pinRes.cookies[0].name).toBe(passwordRes.cookies[0].name);
-    expect(pinRes.cookies[0].options).toEqual(passwordRes.cookies[0].options);
+    expect(pinRes.cookies[0].name).toBe('cp_refresh');
+    expect(pinRes.cookies[0].options).toMatchObject({ httpOnly: true, path: '/api/auth' });
+  });
+
+  it('refuses a password at /auth/login, naming the door that works', async () => {
+    const controller = await buildController();
+
+    expect(() => controller.login()).toThrow(
+      expect.objectContaining({ status: HttpStatus.FORBIDDEN, message: USE_PIN_SIGN_IN }),
+    );
   });
 
   it('mints a refresh token the ordinary refresh route accepts', async () => {

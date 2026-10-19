@@ -51,10 +51,10 @@ describe('JSON content type requirement', () => {
     // allowed one here so this exercises the content-type rule on its own;
     // PortalGuard would refuse a foreign origin first.)
     await request(app.getHttpServer())
-      .post('/api/auth/login')
+      .post('/api/auth/pin')
       .set('Origin', BILLING_ORIGIN)
       .type('form')
-      .send('email=admin@example.com&password=whatever')
+      .send('email=admin@example.com&pin=042719')
       .expect(415);
   });
 

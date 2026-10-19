@@ -69,12 +69,12 @@ function cookieFrom(res: request.Response): string {
   return raw.find((c) => c.startsWith(`${REFRESH_COOKIE_NAME}=`))!.split(';')[0];
 }
 
-/** Studio takes the PIN only (FA-24); billing is signed into with the password. */
+/** Both portals take the PIN, and nothing else: password sign-in is retired. */
 async function signIn(origin: string, email = EMAIL) {
   const res = await request(app.getHttpServer())
-    .post(origin === STUDIO_ORIGIN ? '/api/auth/pin' : '/api/auth/login')
+    .post('/api/auth/pin')
     .set('Origin', origin)
-    .send(origin === STUDIO_ORIGIN ? { email, pin: PIN } : { email, password: PASSWORD })
+    .send({ email, pin: PIN })
     .expect(200);
   return { accessToken: res.body.accessToken as string, cookie: cookieFrom(res) };
 }

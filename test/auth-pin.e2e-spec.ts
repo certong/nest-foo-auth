@@ -117,12 +117,20 @@ describe('POST /api/auth/pin', () => {
   });
 });
 
-describe('studio is PIN-only', () => {
-  it('refuses a password sign-in at studio with 403, before any lookup', async () => {
+/**
+ * Studio refused a password from FA-24. Billing refuses one too now that a PIN
+ * alone signs its operator in, so the route is closed at every portal — which
+ * makes this the whole of what /auth/login does.
+ */
+describe('password sign-in is retired', () => {
+  it.each([
+    ['studio', STUDIO_ORIGIN],
+    ['billing', BILLING_ORIGIN],
+  ])('refuses a password at %s with 403, before any lookup', async (_portal, origin) => {
     fake.findUnique.mockClear();
     const res = await request(app.getHttpServer())
       .post('/api/auth/login')
-      .set('Origin', STUDIO_ORIGIN)
+      .set('Origin', origin)
       .send({ email: EMAIL, password: PASSWORD })
       .expect(403);
 
@@ -132,11 +140,11 @@ describe('studio is PIN-only', () => {
     expect(fake.events).toEqual([]);
   });
 
-  it('still lets a staff password session at billing refresh into studio', async () => {
+  it('still lets a staff session begun at billing refresh into studio', async () => {
     const login = await request(app.getHttpServer())
-      .post('/api/auth/login')
+      .post('/api/auth/pin')
       .set('Origin', BILLING_ORIGIN)
-      .send({ email: EMAIL, password: PASSWORD })
+      .send({ email: EMAIL, pin: PIN })
       .expect(200);
     await request(app.getHttpServer())
       .post('/api/auth/refresh')

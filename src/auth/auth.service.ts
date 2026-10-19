@@ -74,48 +74,6 @@ export class AuthService {
     private readonly pinLockout: PinLockout,
   ) {}
 
-  async validateCredentials(email: string, password: string, meta: RequestMeta): Promise<SessionClaims> {
-    // Studio is PIN-only (FA-24). Refused before the lookup and the verify, so
-    // this answer is the same for every email and says nothing about any of
-    // them. Not logged: nothing was checked.
-    if (meta.portal === 'studio') {
-      throw new ForbiddenException(USE_PIN_SIGN_IN);
-    }
-
-    const user = await this.prisma.account.findUnique({ where: { email } });
-
-    if (user === null) {
-      // Deliberately not an early return: without spending the same Argon2 time
-      // a real verify costs, response timing distinguishes a known address from
-      // an unknown one.
-      await burnVerifyTime(password);
-      // No account to name, and the typed email is deliberately not stored:
-      // people type passwords into that field.
-      await this.log([{ kind: 'login_failed', method: 'password', accountId: null, ...fromMeta(meta) }]);
-      throw new UnauthorizedException(INVALID_CREDENTIALS);
-    }
-
-    // A disabled account fails exactly like a wrong password: same Argon2 cost
-    // (the verify has already run), same row, same 401. Telling the two apart
-    // would confirm the account exists to whoever is trying it.
-    const account = (await verifyPassword(user.passwordHash, password)) ? sessionAccount(user) : null;
-    if (account === null) {
-      await this.log([{ kind: 'login_failed', method: 'password', accountId: user.id, ...fromMeta(meta) }]);
-      throw new UnauthorizedException(INVALID_CREDENTIALS);
-    }
-
-    // After the password, never before: refusing a client at billing before
-    // verifying would answer "this email is a client" to anyone who asks.
-    await this.assertPortal(account, 'password', null, meta);
-
-    // Signing in with the password clears any PIN lockout on this email. The
-    // lockout exists to stop an *unauthenticated* caller guessing six digits;
-    // proving the password is not that.
-    this.pinLockout.clear(email);
-
-    return this.startSession(account, 'password', meta);
-  }
-
   /**
    * Email and six-digit PIN (POST /auth/pin, FA-24). Each account holds its own
    * PIN (auth.account_pin), created by `npm run key:set`.
