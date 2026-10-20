@@ -24,9 +24,9 @@ async function bootstrap(): Promise<void> {
   const port = configService.get<number>('PORT') ?? 3001;
   await app.listen(port);
 
-  // Locally .env is a symlink to .env.local/.dev/.uat (see scripts/use-env.sh).
-  // Announce which one is live, so a session pointed at the wrong database says
-  // so on its first line of output instead of on its first write.
+  // One .env, edited in place, so nothing but this line says which database a
+  // session actually reached. Announce it, so one pointed at the wrong target
+  // says so on its first line of output instead of on its first write.
   new Logger('Bootstrap').log(
     `listening on ${port} — APP_ENV=${configService.get<string>('APP_ENV') ?? 'unset'} ` +
       `db=${databaseHost(configService.get<string>('DATABASE_URL'))} ` +

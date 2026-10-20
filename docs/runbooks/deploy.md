@@ -102,7 +102,7 @@ This is where FA-12 ends for an environment whose tables have not moved.
 ### 6. After the tables have moved: migrate, seed, smoke the sign-in
 
 Only once the handover runbook's move has run in this environment. From a
-laptop, with `.env.<name>` pointing at it (`npm run env:which` to be sure):
+laptop, with `.env` pointing at it (the boot log names the host it reached):
 
 ```bash
 npx prisma migrate resolve --applied 0_init   # handover runbook, step 3
@@ -149,8 +149,9 @@ Do not skip the before-and-after account census. The migration keeps **at most
 one** PIN — the old shared door's — and every other account comes out of it with
 no way in.
 
-**Before.** With `.env.<name>` pointing at the environment (`npm run env:which`
-to be sure), record who exists and who holds the old door:
+**Before.** With `.env` pointing at the environment -- copy the target over it,
+and check the host in `DATABASE_URL` before running anything -- record who
+exists and who holds the old door:
 
 ```bash
 npm run user:list

@@ -99,9 +99,8 @@ back: for local work, run this service locally on port 3001.
 
 ```bash
 npm install
-cp .env.example .env.local      # then fill it in; see the comments
-npm run env:local
-npm run signing-key:generate    # paste AUTH_SIGNING_JWK into .env.local
+cp .env.example .env            # then fill it in; see the comments
+npm run signing-key:generate    # paste AUTH_SIGNING_JWK into .env
 npx prisma migrate deploy       # on a database that came from billing, follow the runbook instead
 npm run seed:admin              # ADMIN_EMAIL / ADMIN_PASSWORD
 npm run start:dev               # http://localhost:3001
