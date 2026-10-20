@@ -1,8 +1,9 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { envConfigModule } from './config/config.module';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
+import { HttpLogMiddleware } from './common/http-log.middleware';
 import { JsonContentTypeGuard } from './common/json-content-type.guard';
 import { HealthController } from './health/health.controller';
 import { PortalGuard } from './portal/portal.guard';
@@ -25,4 +26,13 @@ import { PrismaModule } from './prisma/prisma.module';
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  // Middleware, not an interceptor, so it is outside the pipeline above and
+  // sees what the guards answer -- a 403 from PortalGuard and a 401 from
+  // JwtAuthGuard never reach an interceptor at all. Inert unless APP_ENV is
+  // local; the middleware decides that for itself, so this line is the same
+  // in every environment.
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(HttpLogMiddleware).forRoutes('{*splat}');
+  }
+}

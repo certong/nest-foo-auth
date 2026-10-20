@@ -106,6 +106,28 @@ npm run seed:admin              # ADMIN_EMAIL / ADMIN_PASSWORD
 npm run start:dev               # http://localhost:3001
 ```
 
+With `APP_ENV=local`, which is what .env.example ships, every request is
+logged as one line:
+
+```
+POST /api/auth/pin 200 92ms portal=billing user=-
+  body keys: pin
+POST /api/auth/pin 401 89ms portal=studio user=-
+  body keys: pin
+POST /api/auth/pin 403 1ms portal=- user=-
+  body keys: email, pin
+```
+
+Those three are a sign-in, the same body refused at studio because a PIN there
+names nobody, and an origin that has no portal -- all of which answer alike on
+purpose so a caller cannot learn from them, which leaves this as the only place
+the difference shows. `portal=-` means PortalGuard refused before anything was
+read; `user=-` means no bearer token was verified, which is every sign-in.
+
+Key names, never values: in this service every body value is a credential, and
+a 400 is almost always the wrong shape rather than the wrong secret. Off
+wherever APP_ENV is not `local`, so no deployed environment can acquire it.
+
 ## Tests
 
 ```bash
