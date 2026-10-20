@@ -116,7 +116,7 @@ Existing accounts move with the tables, so there is normally nothing to seed.
 Then, with an account that exists there:
 
 ```bash
-SMOKE_EMAIL=you@example.com SMOKE_PASSWORD=… \
+SMOKE_EMAIL=you@example.com SMOKE_PIN=… \
   npm run smoke -- https://api-auth-development.foocertong.com https://billing-development.foocertong.com
 ```
 
@@ -129,6 +129,100 @@ also the proof that the log is being written through the pooler (FA-17).
 The script does not prove the browser sends the cookie back from the portal's
 own host. That takes a click-through on the deployed billing frontend: sign in,
 reload the page, and stay signed in.
+
+### 7. The PIN-only upgrade (FA-24, FA-25, and the end of password sign-in)
+
+For an environment whose last deploy predates 2026-10-15. All three were last
+deployed on 2026-10-09, so this applies to every one of them.
+
+Three changes land together and they interact:
+
+- **FA-24** replaces the singleton `account_pin` door with one PIN per account
+  (`20261015120000_per_account_pin`).
+- **FA-25** lets billing sign in with a PIN and no email, by resolving the one
+  account it could belong to.
+- **Password sign-in is retired.** `POST /api/auth/login` answers 403 at every
+  portal. **There is no fallback left**: an account without a PIN cannot sign in
+  at all, and a PIN lockout can no longer be cleared by proving a password.
+
+Do not skip the before-and-after account census. The migration keeps **at most
+one** PIN — the old shared door's — and every other account comes out of it with
+no way in.
+
+**Before.** With `.env.<name>` pointing at the environment (`npm run env:which`
+to be sure), record who exists and who holds the old door:
+
+```bash
+npm run user:list
+```
+
+**Migrate.**
+
+```bash
+npx prisma migrate status    # expect only 20261015120000_per_account_pin pending
+npx prisma migrate deploy
+```
+
+That migration deletes `account_pin` rows with no `key_hash` or no `account_id`
+(the seed row, and any door never set), renames `key_hash` to `pin_hash`, and
+re-keys the table by `account_id`. A door that had a PIN stays, and becomes that
+account's own PIN — so exactly one account comes through still able to sign in,
+and only if the door had been set.
+
+**After.** Run the census again and read it against two rules:
+
+```bash
+npm run user:list
+```
+
+1. **Billing needs exactly one operator.** FA-25 counts accounts that are
+   `staff`, not disabled, and hold a PIN. Zero or more than one and it refuses
+   with the same 401 a wrong PIN gets — deliberately, so the endpoint cannot be
+   used to count accounts, which also means the log will not tell you this is
+   why. Straight after the migration the usual failure is **zero**, not two:
+   two is unreachable until a second `key:set` is run. Zero happens when the old
+   door belonged to a client account, or to one since disabled.
+2. **Everyone else needs a PIN.** Every account that is not the one the door
+   came with has none. Studio takes email + PIN, so each studio user is locked
+   out until given one:
+
+```bash
+USER_EMAIL=someone@example.com USER_PIN=123456 npm run key:set
+```
+
+Setting a second **staff** PIN is what breaks rule 1. If billing and studio need
+separate people, make the extra accounts `client`, or accept that billing's
+PIN-alone door closes and its frontend must send the email again.
+
+**Smoke.** Email and PIN, not a password:
+
+```bash
+SMOKE_EMAIL=you@example.com SMOKE_PIN=123456 \
+  npm run smoke -- https://api-auth-development.foocertong.com https://billing-development.foocertong.com
+```
+
+Then the one thing the script does not cover, since it always sends the email —
+billing's PIN-alone door, which is what the deployed frontend actually uses:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -X POST https://api-auth-development.foocertong.com/api/auth/pin \
+  -H 'Origin: https://billing-development.foocertong.com' \
+  -H 'Content-Type: application/json' \
+  -d '{"pin":"123456"}'
+```
+
+`200` means the operator resolved. `401` means rule 1 is not satisfied — go back
+to the census; it is not a wrong PIN.
+
+**Order against the frontend.** Deploy auth first. It still accepts
+`{ email, pin }`, so a billing frontend from before CP-107 keeps working across
+the gap. The reverse does not hold: CP-107 sends `{ pin }` alone and needs FA-25
+already live, so promoting the frontend first takes billing sign-in down.
+
+**Rolling back** is the image, as below — but only until `key:set` has been run
+for anyone. The migration is not reversed by rolling the image back, and the
+previous image cannot read `pin_hash`.
 
 ## Rolling back
 
