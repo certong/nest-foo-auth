@@ -11,7 +11,7 @@
  * Two tiers. The first needs no account and no database, so it passes on a
  * service deployed ahead of the table handover (spec 11.4 step 1): health, the
  * JWKS, CORS and the origin rule. The second runs only when SMOKE_EMAIL and
- * SMOKE_PASSWORD are set: sign in, /me, refresh, sign out. It is a real sign-in
+ * SMOKE_PIN are set: sign in, /me, refresh, sign out. It is a real sign-in
  * and leaves real rows in auth.auth_event (login_success, portal_entry, logout).
  *
  * Node rather than curl and jq: fetch is built in, so this needs nothing
@@ -82,7 +82,7 @@ function post(path, { from, cookie, body } = {}) {
 }
 
 function preflight(from) {
-  return fetch(`${base}/api/auth/login`, {
+  return fetch(`${base}/api/auth/pin`, {
     method: 'OPTIONS',
     headers: {
       Origin: from,
@@ -166,18 +166,21 @@ await check(`a refresh from ${origin} with no cookie is 401`, async () => {
 });
 
 const email = process.env.SMOKE_EMAIL;
-const password = process.env.SMOKE_PASSWORD;
+const pin = process.env.SMOKE_PIN;
 
-if (!email || !password) {
-  console.log('== 2. signing in: skipped (set SMOKE_EMAIL and SMOKE_PASSWORD to run it)');
+if (!email || !pin) {
+  console.log('== 2. signing in: skipped (set SMOKE_EMAIL and SMOKE_PIN to run it)');
 } else {
   console.log(`== 2. signing in as ${email}`);
 
   let accessToken;
   let cookie;
 
-  await check('POST /api/auth/login returns an access token and the refresh cookie', async () => {
-    const res = await post('/api/auth/login', { from: origin, body: { email, password } });
+  // Email and PIN, which both portals take. Billing also accepts the PIN
+  // alone (FA-25), but the email-bearing form is the one that works from
+  // either origin, so the smoke does not have to know which it was pointed at.
+  await check('POST /api/auth/pin returns an access token and the refresh cookie', async () => {
+    const res = await post('/api/auth/pin', { from: origin, body: { email, pin } });
     expect(res.status === 200, `status ${res.status}`);
     ({ accessToken } = await res.json());
     expect(typeof accessToken === 'string', 'no accessToken in the body');
