@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { envConfigModule } from './config/config.module';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
@@ -9,7 +9,7 @@ import { PortalGuard } from './portal/portal.guard';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, AuthModule],
+  imports: [envConfigModule(), PrismaModule, AuthModule],
   controllers: [HealthController],
   // Global guards run in the order listed here, which is why all three live in
   // one place:

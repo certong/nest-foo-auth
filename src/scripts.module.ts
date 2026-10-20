@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { envConfigModule } from './config/config.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 /**
@@ -8,6 +8,6 @@ import { PrismaModule } from './prisma/prisma.module';
  * the portal map just to add an account — and would start the retention timer.
  */
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule],
+  imports: [envConfigModule(), PrismaModule],
 })
 export class ScriptsModule {}
