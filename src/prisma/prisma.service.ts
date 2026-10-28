@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 
 /**
@@ -37,10 +38,14 @@ export function requireAuthSchema(url: string | undefined): string {
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleDestroy {
   constructor(configService: ConfigService) {
+    // The driver adapter does not read `schema=` from the URL, so it is named
+    // here as well. requireAuthSchema still runs: it is what stops a URL that
+    // points somewhere else, and Migrate does read the parameter.
     super({
-      datasources: {
-        db: { url: requireAuthSchema(configService.get<string>('DATABASE_URL')) },
-      },
+      adapter: new PrismaPg(
+        { connectionString: requireAuthSchema(configService.get<string>('DATABASE_URL')) },
+        { schema: 'auth' },
+      ),
     });
   }
 

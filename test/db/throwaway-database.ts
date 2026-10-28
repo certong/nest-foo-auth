@@ -1,3 +1,4 @@
+import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -68,7 +69,7 @@ export async function createThrowawayDatabase(options: { upTo?: string } = {}): 
   const adminUrl = new URL(TEST_DATABASE_URL!);
   const name = `foo_auth_test_${randomBytes(4).toString('hex')}`;
 
-  const admin = new PrismaClient({ datasources: { db: { url: adminUrl.toString() } } });
+  const admin = new PrismaClient({ adapter: new PrismaPg({ connectionString: adminUrl.toString() }) });
   await admin.$executeRawUnsafe(`CREATE DATABASE "${name}"`);
 
   const url = new URL(adminUrl);
@@ -86,7 +87,7 @@ export async function createThrowawayDatabase(options: { upTo?: string } = {}): 
     throw error;
   }
 
-  const prisma = new PrismaClient({ datasources: { db: { url: url.toString() } } });
+  const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: url.toString() }, { schema: 'auth' }) });
 
   return {
     prisma,

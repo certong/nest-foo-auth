@@ -67,6 +67,6 @@ psql "$PSQL_URL" -X -q -f "$here/30-verify.sql"
 echo "== 6. drift: schema.prisma against the database (no output = none)"
 # Exit code 2 means a difference — including Prisma wanting to drop the
 # partial unique index it cannot represent. That is a finding, not noise.
-npx prisma migrate diff --from-url "$DIRECT_URL" --to-schema-datamodel prisma/schema.prisma --script --exit-code
+npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script --exit-code
 
 echo "== handover rehearsed on $host"
