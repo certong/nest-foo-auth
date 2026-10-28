@@ -5,18 +5,19 @@ generator client {
   previewFeatures = ["relationJoins"]
 }
 
-// Both URLs carry `?schema=auth`. Prisma then schema-qualifies every query it
-// generates ("auth"."account"), so nothing depends on search_path — which the
-// Neon pooler (PgBouncer, transaction mode) would not keep anyway — and it keeps
-// its migration table at auth._prisma_migrations, apart from billing's
-// billing._prisma_migrations. That separation is this repo's migration history.
+// The URLs live in prisma.config.ts (Migrate, DIRECT_URL) and PrismaService
+// (the service, DATABASE_URL); both carry `?schema=auth`. Migrate takes the
+// schema from that parameter and keeps its migration table at
+// auth._prisma_migrations, apart from billing's billing._prisma_migrations.
+// That separation is this repo's migration history. The service's driver
+// adapter is told `schema: 'auth'` outright, so every query it generates is
+// schema-qualified ("auth"."account") and nothing depends on search_path —
+// which the Neon pooler (PgBouncer, transaction mode) would not keep anyway.
 //
 // Raw SQL does not get this for free: anything passed to $executeRaw or
 // $queryRaw must write `auth.` itself.
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
 }
 
 // A way to sign in. Moved here from nest-foo-billing with `ALTER TABLE ... SET

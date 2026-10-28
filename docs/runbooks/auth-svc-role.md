@@ -108,8 +108,8 @@ now naming `auth_svc` and its password:
 
 ```bash
 npx prisma migrate deploy      # "No pending migrations", or applies them
-npx prisma migrate diff --from-url "$DIRECT_URL" \
-  --to-schema-datamodel prisma/schema.prisma --script --exit-code   # empty
+npx prisma migrate diff --from-config-datasource \
+  --to-schema prisma/schema.prisma --script --exit-code   # empty
 ```
 
 ### 6. Point the service at the auth role
