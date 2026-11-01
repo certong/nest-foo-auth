@@ -37,12 +37,13 @@ async function main(): Promise<void> {
     const user = await addUser(app.get(PrismaService), email, password, { accountType, clientId });
     if (user.accountType === 'client') {
       console.log(`Client account created: ${user.email} → billing client ${user.clientId}`);
-      console.log('It can sign in to studio only. Check that client id exists in billing —');
-      console.log('this service cannot see billing’s tables to check it for you.');
+      console.log('It can sign in to studio only, which takes a PIN: run `npm run key:set` next.');
+      console.log('Check that client id exists in billing — this service cannot see');
+      console.log('billing’s tables to check it for you.');
     } else {
       console.log(`Staff account created: ${user.email}`);
-      console.log('It can sign in to every portal. The PIN stays where it is —');
-      console.log('run `npm run key:set` to move it, `npm run user:list` to see who holds it.');
+      console.log('It can sign in to every portal. Studio takes a PIN only —');
+      console.log('run `npm run key:set` to give it one.');
     }
   } finally {
     await app.close();

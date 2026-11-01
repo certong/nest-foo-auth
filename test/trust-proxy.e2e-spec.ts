@@ -4,7 +4,7 @@ import type { Express } from 'express';
 import request from 'supertest';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp } from './create-test-app';
-import { EMAIL, PASSWORD, fakePrisma } from './fake-prisma';
+import { EMAIL, PIN, fakePrisma } from './fake-prisma';
 import { BILLING_ORIGIN } from './test-keys';
 
 /**
@@ -60,11 +60,11 @@ afterEach(async () => {
 });
 
 const signIn = (forwardedFor?: string) => {
-  const req = request(app.getHttpServer()).post('/api/auth/login').set('Origin', BILLING_ORIGIN);
+  const req = request(app.getHttpServer()).post('/api/auth/pin').set('Origin', BILLING_ORIGIN);
   if (forwardedFor !== undefined) {
     req.set('X-Forwarded-For', forwardedFor);
   }
-  return req.send({ email: EMAIL, password: PASSWORD }).expect(200);
+  return req.send({ email: EMAIL, pin: PIN }).expect(200);
 };
 
 const loggedIp = () => events.find((e) => e.kind === 'login_success')!.ip;

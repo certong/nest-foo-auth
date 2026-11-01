@@ -3,7 +3,7 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import request from 'supertest';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { createTestApp } from './create-test-app';
-import { EMAIL, PASSWORD, fakePrisma } from './fake-prisma';
+import { EMAIL, PASSWORD, PIN, fakePrisma } from './fake-prisma';
 import { BILLING_ORIGIN, STUDIO_ORIGIN } from './test-keys';
 
 let app: INestApplication;
@@ -23,8 +23,8 @@ afterAll(async () => {
 
 const audOf = (token: string) => JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString()).aud;
 
-const login = (origin?: string, body: Record<string, unknown> = { email: EMAIL, password: PASSWORD }) => {
-  const req = request(app.getHttpServer()).post('/api/auth/login');
+const login = (origin?: string, body: Record<string, unknown> = { email: EMAIL, pin: PIN }) => {
+  const req = request(app.getHttpServer()).post('/api/auth/pin');
   return (origin === undefined ? req : req.set('Origin', origin)).send(body);
 };
 
@@ -32,9 +32,18 @@ describe('the portal comes from the Origin header', () => {
   it.each([
     [BILLING_ORIGIN, 'billing'],
     [STUDIO_ORIGIN, 'studio'],
-  ])('a sign-in from %s gets a %s token', async (origin, portal) => {
-    const res = await login(origin).expect(200);
+  ])('a PIN sign-in from %s gets a %s token', async (origin, portal) => {
+    const res = await request(app.getHttpServer())
+      .post('/api/auth/pin')
+      .set('Origin', origin)
+      .send({ email: EMAIL, pin: PIN })
+      .expect(200);
     expect(audOf(res.body.accessToken)).toBe(portal);
+  });
+
+  it('a password sign-in from billing gets a billing token', async () => {
+    const res = await login(BILLING_ORIGIN).expect(200);
+    expect(audOf(res.body.accessToken)).toBe('billing');
   });
 
   it('refuses a request with no Origin, before the account is looked up', async () => {
@@ -59,7 +68,7 @@ describe('the portal comes from the Origin header', () => {
   });
 
   it('will not take the portal from the body', async () => {
-    await login(BILLING_ORIGIN, { email: EMAIL, password: PASSWORD, portal: 'studio' }).expect(400);
+    await login(BILLING_ORIGIN, { email: EMAIL, pin: PIN, portal: 'studio' }).expect(400);
   });
 
   it('leaves the health check reachable with no Origin', async () => {

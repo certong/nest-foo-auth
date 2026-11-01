@@ -5,6 +5,7 @@ import { PortalOrigins } from '../portal/portal-origins';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwksController } from './jwks.controller';
+import { PinLockout } from './pin-lockout';
 import { TOKEN_KEYS, tokenKeysProvider } from './token-keys';
 
 @Module({
@@ -21,8 +22,9 @@ import { TOKEN_KEYS, tokenKeysProvider } from './token-keys';
   ],
   controllers: [AuthController, JwksController],
   // TOKEN_KEYS and PortalOrigins are exported for the global guards, which
-  // AppModule registers so their order is explicit.
-  providers: [AuthService, tokenKeysProvider, PortalOrigins],
+  // AppModule registers so their order is explicit. PinLockout is a singleton
+  // here, so every request in this process shares one set of counts.
+  providers: [AuthService, PinLockout, tokenKeysProvider, PortalOrigins],
   exports: [TOKEN_KEYS, PortalOrigins],
 })
 export class AuthModule {}

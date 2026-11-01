@@ -98,7 +98,7 @@ must be `NOTICE: rule probes: all refused as expected`.
 ### 6. Drift
 
 ```bash
-npx prisma migrate diff --from-url "$DIRECT_URL" --to-schema-datamodel prisma/schema.prisma --script --exit-code
+npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script --exit-code
 ```
 
 No SQL and exit 0 means `schema.prisma` and the database agree. Any output is a

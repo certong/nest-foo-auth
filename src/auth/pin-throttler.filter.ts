@@ -1,7 +1,7 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpStatus } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 import type { Response } from 'express';
-import { KEY_LOCKED } from './key-lockout';
+import { PIN_LOCKED } from './pin-lockout';
 
 /**
  * Fallback wait when the guard set no Retry-After header, in seconds. Matches
@@ -11,7 +11,7 @@ import { KEY_LOCKED } from './key-lockout';
 const DEFAULT_RETRY_AFTER_SECONDS = 900;
 
 /**
- * Makes the coarse per-IP throttle's 429 indistinguishable from the operator
+ * Makes the coarse per-IP throttle's 429 indistinguishable from the PIN
  * lockout's 429 (CP handoff, decision 2).
  *
  * Two reasons this filter exists rather than nothing:
@@ -20,11 +20,10 @@ const DEFAULT_RETRY_AFTER_SECONDS = 900;
  * renders its "try again in N" countdown from that field — throttled callers
  * would get a bare "locked" with no idea for how long.
  *
- * And the two 429s must read alike. The throttle is the outer bound that keeps
- * an unkeyed deployment from being made to burn Argon2 time indefinitely — that
- * path has no row to lock, so the lockout cannot bound it — but which limit
- * fired is not the caller's business, because it says whether the operator's
- * five attempts are already spent.
+ * And the two 429s must read alike. The throttle is the outer bound across
+ * emails — the lockout counts per typed email, so a caller rotating addresses
+ * is held back only by this — but which limit fired is not the caller's
+ * business, because it says whether that email's five attempts are spent.
  */
 /**
  * ThrottlerGuard sets Retry-After before it throws, which is the real remaining
@@ -47,7 +46,7 @@ function headerSeconds(response: Response): number | null {
 }
 
 @Catch(ThrottlerException)
-export class KeyThrottlerFilter implements ExceptionFilter {
+export class PinThrottlerFilter implements ExceptionFilter {
   catch(_exception: ThrottlerException, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<Response>();
 
@@ -56,7 +55,7 @@ export class KeyThrottlerFilter implements ExceptionFilter {
     response.status(HttpStatus.TOO_MANY_REQUESTS).json({
       statusCode: HttpStatus.TOO_MANY_REQUESTS,
       error: 'Too Many Requests',
-      message: KEY_LOCKED,
+      message: PIN_LOCKED,
       retryAfter,
     });
   }

@@ -6,7 +6,7 @@ import request from 'supertest';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { REFRESH_COOKIE_NAME } from '../src/auth/session-cookie';
 import { createTestApp } from './create-test-app';
-import { CLIENT_EMAIL, CLIENT_ID, EMAIL, PASSWORD, USER_ID, fakePrisma } from './fake-prisma';
+import { CLIENT_EMAIL, CLIENT_ID, EMAIL, PASSWORD, PIN, USER_ID, fakePrisma } from './fake-prisma';
 import { BILLING_ORIGIN, STUDIO_ORIGIN, TEST_ISSUER, testKeys } from './test-keys';
 
 /**
@@ -69,11 +69,12 @@ function cookieFrom(res: request.Response): string {
   return raw.find((c) => c.startsWith(`${REFRESH_COOKIE_NAME}=`))!.split(';')[0];
 }
 
+/** Both portals take the PIN, and nothing else: password sign-in is retired. */
 async function signIn(origin: string, email = EMAIL) {
   const res = await request(app.getHttpServer())
-    .post('/api/auth/login')
+    .post('/api/auth/pin')
     .set('Origin', origin)
-    .send({ email, password: PASSWORD })
+    .send({ email, pin: PIN })
     .expect(200);
   return { accessToken: res.body.accessToken as string, cookie: cookieFrom(res) };
 }

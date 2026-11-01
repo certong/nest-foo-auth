@@ -2,7 +2,7 @@
 
 The one place sign-in happens for the foo platform. Issues ES256 tokens for the
 **billing** and **studio** portals, owns the `auth` schema of
-`foo_platform_db`, and publishes the public key the product backends verify
+`foo_platform`, and publishes the public key the product backends verify
 with. Sign in at one portal and you are signed in at every portal your account
 may enter.
 
@@ -22,13 +22,45 @@ anything else is a 403. Except where noted, mutating requests must send
 
 | | | Returns |
 |---|---|---|
-| `POST /api/auth/login` | `{ email, password }`, throttled 10/15 min/IP | `{ accessToken, user: { id, email, accountType, clientId? } }` + refresh cookie; 403 for a client at billing |
-| `POST /api/auth/key` | `{ key }` (six digits), throttled + per-door lockout | same as login |
+| `POST /api/auth/login` | — | **Retired.** 403 `Use PIN sign-in for this portal` at every portal, with no body read and no account looked up. Kept, rather than removed, so a frontend built against the old contract is told what to use instead |
+| `POST /api/auth/pin` | `{ email, pin }` (six digits), same throttle; 5 wrong tries lock that email for 15 min (429 `retryAfter`). From **billing** the email may be omitted — see below | same as login; 403 for a client at billing |
 | `POST /api/auth/refresh` | refresh cookie | `{ accessToken }` for the requesting portal; 403 for a client at billing, 401 once disabled |
 | `POST /api/auth/logout` | — | 204, cookie cleared (signs out of every portal) |
 | `GET /api/me` | `Authorization: Bearer <access token for this portal>` | `{ id, email, accountType, clientId? }` |
 | `GET /.well-known/jwks.json` | no Origin needed | the public signing keys |
 | `GET /api/health` | no Origin needed | `{ status: 'ok' }` |
+
+### Billing signs in with a PIN alone (FA-25)
+
+`POST /api/auth/pin` accepts `{ pin }` with no `email` **from the billing
+origin only**. Billing is staff-only and single-operator, so a PIN there can
+belong to one account and the portal does not ask its operator to type an
+address before six digits. Studio is not single-operator: a PIN names nobody
+there, and the same request is refused.
+
+| portal | body | |
+|---|---|---|
+| billing | `{ pin }` | resolves the operator, then behaves exactly as `{ email, pin }` |
+| billing | `{ email, pin }` | unchanged |
+| studio | `{ pin }` | 401, in the same shape as a wrong PIN |
+| studio | `{ email, pin }` | unchanged |
+
+The operator is the one **enabled staff account holding a PIN**, found by
+lookup — not by trying the PIN against every account, which would cost an
+Argon2 verify each and have no defined answer when two of them chose the same
+six digits. Zero matches, or more than one, is refused exactly as a wrong PIN
+is, so this never becomes a way to count accounts. More than one means the
+single-operator assumption has stopped holding and the door should be
+reconsidered rather than silently picking a human.
+
+The lockout is unchanged: the account is resolved *before* the attempt is
+taken, so PIN-only guessing spends the same five tries per fifteen minutes
+against the same key an email-bearing caller would. The unresolvable paths
+have a key of their own, so a caller who cannot name an account cannot lock
+the operator out of their own portal.
+
+Omitting the key is the only way to leave the email out. An empty string or a
+null is a malformed address, not an absent one, and is a 400.
 
 Access tokens last 15 minutes, the refresh cookie 12 hours. Claims: `iss`,
 `aud` (`billing` | `studio`), `sub`, `email`, `sid`, `typ`, `account_type`
@@ -67,13 +99,34 @@ back: for local work, run this service locally on port 3001.
 
 ```bash
 npm install
-cp .env.example .env.local      # then fill it in; see the comments
-npm run env:local
-npm run signing-key:generate    # paste AUTH_SIGNING_JWK into .env.local
+cp .env.example .env            # then fill it in; see the comments
+npm run signing-key:generate    # paste AUTH_SIGNING_JWK into .env
 npx prisma migrate deploy       # on a database that came from billing, follow the runbook instead
 npm run seed:admin              # ADMIN_EMAIL / ADMIN_PASSWORD
 npm run start:dev               # http://localhost:3001
 ```
+
+With `APP_ENV=local`, which is what .env.example ships, every request is
+logged as one line:
+
+```
+POST /api/auth/pin 200 92ms portal=billing user=-
+  body keys: pin
+POST /api/auth/pin 401 89ms portal=studio user=-
+  body keys: pin
+POST /api/auth/pin 403 1ms portal=- user=-
+  body keys: email, pin
+```
+
+Those three are a sign-in, the same body refused at studio because a PIN there
+names nobody, and an origin that has no portal -- all of which answer alike on
+purpose so a caller cannot learn from them, which leaves this as the only place
+the difference shows. `portal=-` means PortalGuard refused before anything was
+read; `user=-` means no bearer token was verified, which is every sign-in.
+
+Key names, never values: in this service every body value is a credential, and
+a 400 is almost always the wrong shape rather than the wrong secret. Off
+wherever APP_ENV is not `local`, so no deployed environment can acquire it.
 
 ## Tests
 
@@ -136,9 +189,23 @@ it exists to prevent.
 |---|---|
 | `npm run seed:admin` | create a staff account, or reset a staff password (there is no reset flow) |
 | `npm run user:add` | add an account; `USER_ACCOUNT_TYPE=client USER_CLIENT_ID=<billing client id>` for a client |
-| `npm run user:list` | list accounts with type, client, disabled, and the PIN holder |
+| `npm run user:list` | list accounts with type, client, disabled, and whether each has a PIN |
 | `npm run user:disable` / `user:enable` | cut a login off (its session ends within 15 minutes) or let it back |
-| `npm run key:set` | set, move or clear the six-digit PIN (staff only); also the unlock |
+| `npm run key:set` | set or replace one account's six-digit PIN (`USER_EMAIL`, `USER_PIN`); staff or client |
+| `npm run key:clear` | remove one account's PIN (`USER_EMAIL`) |
+
+A PIN is the only way in. Studio takes email + PIN; billing takes the PIN alone
+(FA-25). Each account has its own PIN (`auth.account_pin`), so a new studio user
+needs `user:add` then `key:set`.
+
+The PIN lockout is per typed email and held in memory: it ends after 15 minutes
+or on a restart, and nothing else clears it. A password sign-in used to — that
+was the one override, and retiring the password took it away, so an operator who
+locks themselves out of billing waits. `key:set` does not clear it either.
+
+Accounts still carry a password hash and `seed:admin` still sets one; it opens
+nothing. Left in place so the column and the scripts do not have to be migrated
+to put the door back.
 
 ## The login log
 
