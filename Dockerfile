@@ -1,8 +1,10 @@
 # syntax=docker/dockerfile:1
 
-# Debian slim rather than Alpine: Prisma's query engine needs OpenSSL, and the
-# glibc/openssl-3.0 build is the target Prisma auto-detects here. Generating and
-# running on the same base image keeps the engine binary and the runtime in sync.
+# Debian slim rather than Alpine. Prisma 7 no longer ships a native query
+# engine (the client carries a WASM query compiler and talks to Postgres through
+# node-postgres), so OpenSSL is no longer Prisma's requirement; it and
+# ca-certificates stay for TLS to Neon. Generating and running on the same base
+# image keeps the build and the runtime alike.
 FROM node:24-slim AS base
 RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl ca-certificates \
@@ -20,6 +22,8 @@ RUN npm ci --ignore-scripts
 # Generate before copying the rest of the source: the client only depends on the
 # schema, so editing a service does not invalidate this layer.
 COPY prisma ./prisma
+# Prisma 7 reads the schema's location from here, not from a default.
+COPY prisma.config.ts ./
 RUN npx prisma generate
 COPY . .
 RUN npm run build
@@ -37,7 +41,7 @@ COPY prisma ./prisma
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 # The generated client, carried over from the build stage. @prisma/client is a
 # runtime dependency and is already installed above; .prisma/client holds the
-# generated types and the platform query engine, which npm does not produce.
+# generated client and its query compiler, which npm does not produce.
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/dist ./dist
 

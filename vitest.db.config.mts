@@ -13,7 +13,7 @@ import { defineConfig } from 'vitest/config';
  * TEST_DATABASE_URL names a server and a database to connect to for admin
  * work; each run creates its own throwaway database beside it, applies this
  * repo's migrations with `prisma migrate deploy`, and drops it afterwards.
- * Nothing touches foo_platform_db. Without the variable every case is skipped.
+ * Nothing touches foo_platform. Without the variable every case is skipped.
  */
 
 // Nest's ConfigModule reads .env for the service, and the Prisma CLI reads it

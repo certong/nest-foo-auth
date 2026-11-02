@@ -13,7 +13,7 @@ interface Row {
   disabledAt?: Date | null;
 }
 
-function fakePrisma(rows: Row[], keyHolderId: string | null = null) {
+function fakePrisma(rows: Row[], withPin: string[] = []) {
   return {
     rows,
     prisma: {
@@ -26,7 +26,15 @@ function fakePrisma(rows: Row[], keyHolderId: string | null = null) {
           return Promise.resolve(row);
         },
         findMany: () =>
-          Promise.resolve(rows.map((r) => ({ accountType: 'staff', clientId: null, disabledAt: null, ...r }))),
+          Promise.resolve(
+            rows.map((r) => ({
+              accountType: 'staff',
+              clientId: null,
+              disabledAt: null,
+              ...r,
+              pin: withPin.includes(r.id) ? { accountId: r.id } : null,
+            })),
+          ),
         update: ({ where, data }: { where: { id: string }; data: Partial<Row> }) => {
           const row = rows.find((r) => r.id === where.id)!;
           Object.assign(row, data);
@@ -50,13 +58,6 @@ function fakePrisma(rows: Row[], keyHolderId: string | null = null) {
           rows.push(row);
           return Promise.resolve(row);
         },
-      },
-      accountPin: {
-        findUnique: () =>
-          Promise.resolve({
-            keyHash: keyHolderId === null ? null : 'set',
-            account: rows.find((r) => r.id === keyHolderId) ?? null,
-          }),
       },
     },
   };
@@ -180,27 +181,27 @@ describe('seedAdmin', () => {
 });
 
 describe('listUsers', () => {
-  it('marks which account holds the PIN', async () => {
-    // With several accounts there is no other way to find out — the endpoint
-    // itself will not say, because every rejection is deliberately uniform.
+  it('marks which accounts have a PIN', async () => {
+    // There is no other way to find out — the endpoint itself will not say,
+    // because every rejection is deliberately uniform.
     const rows = [
       { id: 'u1', email: 'a@example.com', passwordHash: 'x', createdAt: new Date() },
       { id: 'u2', email: 'b@example.com', passwordHash: 'x', createdAt: new Date() },
     ];
-    const { prisma } = fakePrisma(rows, 'u2');
+    const { prisma } = fakePrisma(rows, ['u2']);
 
     await expect(listUsers(prisma as never)).resolves.toEqual([
-      { email: 'a@example.com', createdAt: rows[0].createdAt, accountType: 'staff', clientId: null, disabled: false, holdsKey: false },
-      { email: 'b@example.com', createdAt: rows[1].createdAt, accountType: 'staff', clientId: null, disabled: false, holdsKey: true },
+      { email: 'a@example.com', createdAt: rows[0].createdAt, accountType: 'staff', clientId: null, disabled: false, hasPin: false },
+      { email: 'b@example.com', createdAt: rows[1].createdAt, accountType: 'staff', clientId: null, disabled: false, hasPin: true },
     ]);
   });
 
-  it('reports no holder when no PIN is configured', async () => {
+  it('reports no PIN when an account has none', async () => {
     const rows = [{ id: 'u1', email: 'a@example.com', passwordHash: 'x', createdAt: new Date() }];
-    const { prisma } = fakePrisma(rows, null);
+    const { prisma } = fakePrisma(rows);
 
     await expect(listUsers(prisma as never)).resolves.toEqual([
-      { email: 'a@example.com', createdAt: rows[0].createdAt, accountType: 'staff', clientId: null, disabled: false, holdsKey: false },
+      { email: 'a@example.com', createdAt: rows[0].createdAt, accountType: 'staff', clientId: null, disabled: false, hasPin: false },
     ]);
   });
 });

@@ -22,17 +22,28 @@ afterAll(async () => {
 });
 
 describe('login throttling', () => {
-  it('allows ten attempts then answers 429', async () => {
-    const attempt = () =>
+  // The password route used to carry the first of these cases. It is retired,
+  // and the PIN case below covers the same per-IP throttle on the only door
+  // left — the two always shared one named `login` throttler.
+  it('throttles PIN sign-in the same way, with a 429 shaped like the lockout’s', async () => {
+    // Distinct emails each time, so the per-email lockout never fires and the
+    // 429 can only be the throttle's.
+    const attempt = (i: number) =>
       request(app.getHttpServer())
-        .post('/api/auth/login')
+        .post('/api/auth/pin')
         .set('Origin', BILLING_ORIGIN)
-        .send({ email: 'nobody@example.com', password: 'wrong' });
+        .send({ email: `nobody${i}@example.com`, pin: '000000' });
 
     for (let i = 0; i < 10; i += 1) {
-      await attempt().expect(401);
+      await attempt(i).expect(401);
     }
-    await attempt().expect(429);
+    const throttled = await attempt(10).expect(429);
+    expect(throttled.body).toEqual({
+      statusCode: 429,
+      error: 'Too Many Requests',
+      message: 'Too many attempts',
+      retryAfter: expect.any(Number),
+    });
   });
 
   it('leaves other routes unthrottled', async () => {
